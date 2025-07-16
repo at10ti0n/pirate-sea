@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pirate Sea - Roguelike Adventure</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="game-container">
+        <h1>Pirate Sea</h1>
+        
+        <div class="game-area">
+            <div id="game-display"></div>
+            
+            <!-- Overlay Touch Controls -->
+            <div class="game-overlay">
+                <div class="overlay-direction-pad">
+                    <button id="overlay-up-btn" class="overlay-control-btn">↑</button>
+                    <button id="overlay-left-btn" class="overlay-control-btn">←</button>
+                    <button id="overlay-right-btn" class="overlay-control-btn">→</button>
+                    <button id="overlay-down-btn" class="overlay-control-btn">↓</button>
+                </div>
+                
+                <div class="overlay-action-buttons">
+                    <button id="overlay-board-btn" class="overlay-action-btn" style="display: none;">Board</button>
+                    <button id="overlay-unboard-btn" class="overlay-action-btn" style="display: none;">Unboard</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="controls-area">
+            <div class="touch-controls">
+                <div class="direction-pad">
+                    <button id="up-btn" class="control-btn">↑</button>
+                    <div class="middle-row">
+                        <button id="left-btn" class="control-btn">←</button>
+                        <button id="right-btn" class="control-btn">→</button>
+                    </div>
+                    <button id="down-btn" class="control-btn">↓</button>
+                </div>
+                <div class="action-buttons">
+                    <button id="board-btn" class="action-btn" style="display: none;">Board Ship</button>
+                    <button id="unboard-btn" class="action-btn" style="display: none;">Unboard</button>
+                </div>
+            </div>
+            
+            <div class="keyboard-help">
+                <h3>Controls</h3>
+                <p>Arrow keys: Move</p>
+                <p>B: Board ship / Embark</p>
+                <p>E: Embark from coast</p>
+                <p>U: Unboard ship</p>
+            </div>
+        </div>
+        
+        <div class="info-area">
+            <div class="messages">
+                <h3>Messages</h3>
+                <div id="message-log"></div>
+            </div>
+            
+            <div class="legend">
+                <h3>Legend</h3>
+                <div class="legend-item">@ - You (on foot)</div>
+                <div class="legend-item">⛵ - You (on ship)</div>
+                <div class="legend-item">S - Ship</div>
+                <div class="legend-item">P - Port</div>
+                <div class="legend-item">$ - Treasure</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- External Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/rot-js@2.2.0/dist/rot.min.js"></script>
+    
+    <!-- Game Modules -->
+    <script src="map.js"></script>
+    <script src="entities.js"></script>
+    <script src="player.js"></script>
+    <script src="fog.js"></script>
+    <script src="ui.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>

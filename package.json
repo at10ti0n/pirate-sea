@@ -1,0 +1,23 @@
+{
+  "name": "pirate-sea-roguelike",
+  "version": "1.0.0",
+  "description": "A browser-based pirate roguelike game with biome generation, ship mechanics, and touch controls",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "web": "node server.js",
+    "terminal": "node terminal-game.js",
+    "play": "node terminal-game.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "rot-js": "^2.2.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": ["game", "roguelike", "pirate", "javascript", "rot.js"],
+  "author": "",
+  "license": "MIT"
+}

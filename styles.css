@@ -1,0 +1,477 @@
+/* CSS Reset and Base Styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --primary-color: #2c3e50;
+    --secondary-color: #34495e;
+    --accent-color: #3498db;
+    --text-color: #ecf0f1;
+    --background-color: #1a252f;
+    --button-color: #34495e;
+    --button-hover: #4a6741;
+    --border-color: #34495e;
+}
+
+body {
+    font-family: 'Courier New', monospace;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    line-height: 1.6;
+    min-height: 100vh;
+}
+
+/* Game Container */
+.game-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 20px;
+}
+
+h1 {
+    text-align: center;
+    color: var(--accent-color);
+    font-size: 2.5rem;
+    margin-bottom: 20px;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+}
+
+/* Game Display Area */
+.game-area {
+    display: flex;
+    justify-content: center;
+    background-color: var(--primary-color);
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    min-height: 400px;
+    position: relative;
+}
+
+#game-display {
+    background-color: #000;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+/* Overlay Touch Controls */
+.game-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.overlay-direction-pad {
+    position: absolute;
+    bottom: 15px;
+    left: 15px;
+    display: grid;
+    grid-template-columns: 35px 35px 35px;
+    grid-template-rows: 35px 35px 35px;
+    gap: 3px;
+    pointer-events: auto;
+}
+
+.overlay-direction-pad #overlay-up-btn {
+    grid-column: 2;
+    grid-row: 1;
+}
+
+.overlay-direction-pad #overlay-left-btn {
+    grid-column: 1;
+    grid-row: 2;
+}
+
+.overlay-direction-pad #overlay-right-btn {
+    grid-column: 3;
+    grid-row: 2;
+}
+
+.overlay-direction-pad #overlay-down-btn {
+    grid-column: 2;
+    grid-row: 3;
+}
+
+.overlay-control-btn {
+    background-color: rgba(52, 73, 94, 0.15);
+    color: rgba(255, 255, 255, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    padding: 0;
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    width: 35px;
+    height: 35px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    backdrop-filter: blur(8px);
+}
+
+.overlay-control-btn:hover {
+    background-color: rgba(74, 103, 65, 0.3);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.overlay-control-btn:active {
+    transform: scale(0.9);
+    background-color: rgba(52, 152, 219, 0.4);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+.overlay-action-buttons {
+    position: absolute;
+    bottom: 15px;
+    right: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    pointer-events: auto;
+}
+
+.overlay-action-btn {
+    background-color: rgba(52, 152, 219, 0.15);
+    color: rgba(255, 255, 255, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    min-height: 28px;
+    min-width: 55px;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    backdrop-filter: blur(8px);
+    white-space: nowrap;
+}
+
+.overlay-action-btn:hover {
+    background-color: rgba(74, 103, 65, 0.3);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.overlay-action-btn:active {
+    transform: scale(0.9);
+    background-color: rgba(52, 152, 219, 0.4);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+/* Controls Area */
+.controls-area {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    background-color: var(--secondary-color);
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.touch-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    align-items: center;
+}
+
+.direction-pad {
+    display: grid;
+    grid-template-columns: 60px 60px 60px;
+    grid-template-rows: 60px 60px 60px;
+    gap: 8px;
+    justify-content: center;
+    align-items: center;
+}
+
+.direction-pad #up-btn {
+    grid-column: 2;
+    grid-row: 1;
+}
+
+.direction-pad #left-btn {
+    grid-column: 1;
+    grid-row: 2;
+}
+
+.direction-pad #right-btn {
+    grid-column: 3;
+    grid-row: 2;
+}
+
+.direction-pad #down-btn {
+    grid-column: 2;
+    grid-row: 3;
+}
+
+.control-btn {
+    background-color: var(--button-color);
+    color: var(--text-color);
+    border: 3px solid var(--border-color);
+    border-radius: 12px;
+    padding: 0;
+    font-size: 1.5rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+}
+
+.control-btn:hover {
+    background-color: var(--button-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.4);
+}
+
+.control-btn:active {
+    transform: translateY(1px);
+    background-color: var(--accent-color);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.action-buttons {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.action-btn {
+    background-color: var(--accent-color);
+    color: var(--text-color);
+    border: 3px solid var(--border-color);
+    border-radius: 12px;
+    padding: 15px 25px;
+    font-size: 1.1rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    min-height: 50px;
+    min-width: 120px;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    white-space: nowrap;
+}
+
+.action-btn:hover {
+    background-color: var(--button-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.4);
+}
+
+.action-btn:active {
+    transform: translateY(1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.keyboard-help {
+    background-color: var(--primary-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 15px;
+}
+
+.keyboard-help h3 {
+    color: var(--accent-color);
+    margin-bottom: 10px;
+}
+
+.keyboard-help p {
+    margin-bottom: 5px;
+    font-size: 0.9rem;
+}
+
+/* Info Area */
+.info-area {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.messages, .legend {
+    background-color: var(--secondary-color);
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.messages h3, .legend h3 {
+    color: var(--accent-color);
+    margin-bottom: 15px;
+}
+
+#message-log {
+    max-height: 150px;
+    overflow-y: auto;
+    background-color: var(--primary-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 10px;
+    font-size: 0.9rem;
+}
+
+.legend-item {
+    margin-bottom: 8px;
+    font-size: 0.9rem;
+}
+
+/* Mobile Responsive Design */
+@media (max-width: 768px) {
+    body {
+        -webkit-text-size-adjust: 100%;
+        touch-action: manipulation;
+    }
+    
+    .game-container {
+        padding: 10px;
+        gap: 15px;
+    }
+    
+    h1 {
+        font-size: 2rem;
+        margin-bottom: 15px;
+    }
+    
+    /* Hide original controls on mobile */
+    .controls-area {
+        display: none;
+    }
+    
+    .info-area {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+    
+    /* Make overlay controls slightly larger but still compact on mobile */
+    .overlay-direction-pad {
+        bottom: 20px;
+        left: 20px;
+        grid-template-columns: 45px 45px 45px;
+        grid-template-rows: 45px 45px 45px;
+        gap: 4px;
+    }
+    
+    .overlay-control-btn {
+        width: 45px;
+        height: 45px;
+        font-size: 1.1rem;
+        background-color: rgba(52, 73, 94, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+    }
+    
+    .overlay-control-btn:active {
+        background-color: rgba(52, 152, 219, 0.5);
+    }
+    
+    .overlay-action-buttons {
+        bottom: 20px;
+        right: 20px;
+        gap: 6px;
+    }
+    
+    .overlay-action-btn {
+        padding: 8px 12px;
+        font-size: 0.8rem;
+        min-height: 32px;
+        min-width: 65px;
+        background-color: rgba(52, 152, 219, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+    }
+    
+    .overlay-action-btn:active {
+        background-color: rgba(52, 152, 219, 0.5);
+    }
+}
+
+@media (max-width: 480px) {
+    .game-container {
+        padding: 5px;
+        gap: 10px;
+    }
+    
+    h1 {
+        font-size: 1.8rem;
+        margin-bottom: 10px;
+    }
+    
+    .game-area {
+        padding: 8px;
+    }
+    
+    .controls-area {
+        margin: 0 -5px;
+        padding: 15px 5px 10px 5px;
+        border-radius: 12px 12px 0 0;
+    }
+    
+    .messages, .legend {
+        padding: 12px;
+        font-size: 0.85rem;
+    }
+    
+    .direction-pad {
+        grid-template-columns: 65px 65px 65px;
+        grid-template-rows: 65px 65px 65px;
+        gap: 8px;
+    }
+    
+    .control-btn {
+        width: 65px;
+        height: 65px;
+        font-size: 1.6rem;
+        border-radius: 12px;
+    }
+    
+    .action-btn {
+        padding: 15px 25px;
+        font-size: 1.1rem;
+        min-height: 55px;
+        min-width: 130px;
+        border-radius: 12px;
+    }
+    
+    #message-log {
+        max-height: 120px;
+        font-size: 0.8rem;
+    }
+    
+    .legend-item {
+        font-size: 0.8rem;
+        margin-bottom: 6px;
+    }
+}
