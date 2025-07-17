@@ -191,6 +191,39 @@ class MapGenerator {
         
         // Check if surrounded by enough water to be navigable
         let waterNeighbors = 0;
+        let landNeighbors = 0;
+        let beachNeighbors = 0;
+        
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                if (dx === 0 && dy === 0) continue;
+                const neighbor = this.getBiomeAt(x + dx, y + dy);
+                if (neighbor) {
+                    if (neighbor.biome === 'ocean') {
+                        waterNeighbors++;
+                    } else if (neighbor.biome === 'beach') {
+                        beachNeighbors++;
+                        landNeighbors++;
+                    } else if (neighbor.biome !== 'ocean' && !this.biomes[neighbor.biome].shipWalkable) {
+                        landNeighbors++;
+                    }
+                }
+            }
+        }
+        
+        // For ship placement near ports, we want water that's close to land but not too enclosed
+        // At least 4 water neighbors ensures enough space for ship navigation
+        // Having 1-3 land neighbors ensures it's near coast but not in a tight cove
+        return waterNeighbors >= 4 && landNeighbors >= 1 && landNeighbors <= 3;
+    }
+    
+    // Check if a position is suitable for ship placement (more permissive than isNavigableWater)
+    isShipPlacementValid(x, y) {
+        const tile = this.getBiomeAt(x, y);
+        if (!tile || tile.biome !== 'ocean') return false;
+        
+        // For general ship placement, we just need enough water to navigate
+        let waterNeighbors = 0;
         for (let dx = -1; dx <= 1; dx++) {
             for (let dy = -1; dy <= 1; dy++) {
                 if (dx === 0 && dy === 0) continue;
@@ -314,6 +347,137 @@ class MapGenerator {
             }
         }
         return walkableTiles;
+    }
+    
+    // Analyze coastal areas for ship boarding/unboarding
+    analyzeCoastalArea(x, y, radius = 3) {
+        const coastalInfo = {
+            isCoastal: false,
+            waterTiles: [],
+            landTiles: [],
+            beachTiles: [],
+            bestEmbarkPoints: [],
+            bestDisembarkPoints: []
+        };
+        
+        // Check if the center tile is land or water
+        const centerTile = this.getBiomeAt(x, y);
+        if (!centerTile) return coastalInfo;
+        
+        const isLandCenter = centerTile.biome !== 'ocean';
+        
+        // Scan the area around the position
+        for (let dy = -radius; dy <= radius; dy++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+                if (dx === 0 && dy === 0) continue; // Skip center
+                
+                const nx = x + dx;
+                const ny = y + dy;
+                const tile = this.getBiomeAt(nx, ny);
+                
+                if (!tile) continue;
+                
+                // Calculate distance from center (for sorting later)
+                const distance = Math.sqrt(dx*dx + dy*dy);
+                const tileInfo = { 
+                    x: nx, 
+                    y: ny, 
+                    biome: tile.biome,
+                    distance: distance
+                };
+                
+                if (tile.biome === 'ocean') {
+                    // For water tiles, check if they're suitable for ship placement
+                    const isNavigable = this.isShipPlacementValid(nx, ny);
+                    tileInfo.navigable = isNavigable;
+                    coastalInfo.waterTiles.push(tileInfo);
+                    
+                    // If center is land and this water tile is navigable, it's a potential embark point
+                    if (isLandCenter && isNavigable) {
+                        coastalInfo.bestEmbarkPoints.push(tileInfo);
+                    }
+                } else {
+                    // For land tiles
+                    const isWalkable = this.isWalkable(nx, ny, false);
+                    tileInfo.walkable = isWalkable;
+                    coastalInfo.landTiles.push(tileInfo);
+                    
+                    // Track beach tiles separately (preferred for disembarking)
+                    if (tile.biome === 'beach') {
+                        coastalInfo.beachTiles.push(tileInfo);
+                        
+                        // If center is water and this is a walkable beach, it's a good disembark point
+                        if (!isLandCenter && isWalkable) {
+                            coastalInfo.bestDisembarkPoints.push(tileInfo);
+                        }
+                    } else if (!isLandCenter && isWalkable) {
+                        // Non-beach walkable land is still a valid disembark point, but less preferred
+                        coastalInfo.bestDisembarkPoints.push(tileInfo);
+                    }
+                }
+            }
+        }
+        
+        // Sort embark points by navigability and distance
+        coastalInfo.bestEmbarkPoints.sort((a, b) => {
+            if (a.navigable !== b.navigable) return b.navigable - a.navigable;
+            return a.distance - b.distance;
+        });
+        
+        // Sort disembark points - beaches first, then by distance
+        coastalInfo.bestDisembarkPoints.sort((a, b) => {
+            if ((a.biome === 'beach') !== (b.biome === 'beach')) {
+                return (a.biome === 'beach') ? -1 : 1;
+            }
+            return a.distance - b.distance;
+        });
+        
+        // Determine if this is a coastal area (has both land and water)
+        coastalInfo.isCoastal = coastalInfo.waterTiles.length > 0 && coastalInfo.landTiles.length > 0;
+        
+        return coastalInfo;
+    }
+    
+    // Find the best location to place a ship near a coastal point
+    findBestShipPlacement(x, y, radius = 3) {
+        const coastalInfo = this.analyzeCoastalArea(x, y, radius);
+        
+        // If there are suitable embark points, return the best one
+        if (coastalInfo.bestEmbarkPoints.length > 0) {
+            return coastalInfo.bestEmbarkPoints[0];
+        }
+        
+        // If no ideal points found, look for any navigable water
+        const navigableWater = coastalInfo.waterTiles.filter(tile => tile.navigable);
+        if (navigableWater.length > 0) {
+            // Sort by distance and return closest
+            navigableWater.sort((a, b) => a.distance - b.distance);
+            return navigableWater[0];
+        }
+        
+        // No suitable water found
+        return null;
+    }
+    
+    // Find the best location to disembark from a ship onto land
+    findBestDisembarkLocation(x, y, radius = 3) {
+        const coastalInfo = this.analyzeCoastalArea(x, y, radius);
+        
+        // If there are suitable disembark points, return the best one (beaches preferred)
+        if (coastalInfo.bestDisembarkPoints.length > 0) {
+            return coastalInfo.bestDisembarkPoints[0];
+        }
+        
+        // If no ideal points found, look for any walkable land
+        const walkableLand = coastalInfo.landTiles.filter(tile => tile.walkable);
+        if (walkableLand.length > 0) {
+            // Sort by distance and return closest
+            walkableLand.sort((a, b) => a.distance - b.distance);
+            return walkableLand[0];
+        }
+        
+        // No suitable land found
+        return null;
     }
     
     setVisibility(x, y, visible) {

@@ -43,12 +43,80 @@ class EntityManager {
         // Clear existing entities
         this.entities.clear();
         
-        // Spawn more entities for the ocean-dominated world
+        // First, spawn a ship near the player's starting location
+        this.spawnPlayerStartingShip(playerX, playerY);
+        
+        // Then spawn other entities for the ocean-dominated world
         this.spawnPorts(playerX, playerY);
         this.spawnTreasure(playerX, playerY);
         this.spawnShips(playerX, playerY);
         
         console.log(`Spawned ${this.entities.size} entities total`);
+    }
+    
+    spawnPlayerStartingShip(playerX, playerY) {
+        console.log('Spawning starting ship near player...');
+        
+        // Use coastal analysis to find the best ship placement near the player
+        const coastalInfo = this.mapGenerator.analyzeCoastalArea(playerX, playerY, 5);
+        
+        if (coastalInfo.isCoastal && coastalInfo.bestEmbarkPoints.length > 0) {
+            // Find the closest available embark point
+            const availableEmbarkPoints = coastalInfo.bestEmbarkPoints.filter(pos => 
+                !this.isPositionOccupied(pos.x, pos.y)
+            );
+            
+            if (availableEmbarkPoints.length > 0) {
+                const shipLocation = availableEmbarkPoints[0]; // Best location (already sorted)
+                
+                const startingShip = {
+                    type: 'ship',
+                    x: shipLocation.x,
+                    y: shipLocation.y,
+                    char: 'S',
+                    color: '#8b4513',
+                    isStartingShip: true,
+                    playerSpawn: true
+                };
+                
+                this.addEntity(startingShip);
+                console.log(`Starting ship spawned at (${shipLocation.x}, ${shipLocation.y})`);
+                return true;
+            }
+        }
+        
+        // Fallback: look for any nearby navigable water within a larger radius
+        for (let radius = 2; radius <= 10; radius++) {
+            const oceanTiles = this.getAvailableOceanTiles(playerX, playerY, radius);
+            const navigableOceanTiles = oceanTiles.filter(tile => tile.navigable);
+            
+            if (navigableOceanTiles.length > 0) {
+                // Sort by distance to player
+                navigableOceanTiles.sort((a, b) => {
+                    const distA = Math.sqrt((a.x - playerX) ** 2 + (a.y - playerY) ** 2);
+                    const distB = Math.sqrt((b.x - playerX) ** 2 + (b.y - playerY) ** 2);
+                    return distA - distB;
+                });
+                
+                const shipLocation = navigableOceanTiles[0];
+                const startingShip = {
+                    type: 'ship',
+                    x: shipLocation.x,
+                    y: shipLocation.y,
+                    char: 'S',
+                    color: '#8b4513',
+                    isStartingShip: true,
+                    playerSpawn: true
+                };
+                
+                this.addEntity(startingShip);
+                console.log(`Starting ship spawned at (${shipLocation.x}, ${shipLocation.y}) - fallback method`);
+                return true;
+            }
+        }
+        
+        console.log('Could not find suitable location for starting ship');
+        return false;
     }
     
     spawnPorts(centerX, centerY) {
@@ -152,7 +220,7 @@ class EntityManager {
                 if (tile && tile.biome === 'ocean') {
                     if (!this.isPositionOccupied(x, y)) {
                         // Prefer navigable water for ship placement
-                        const isNavigable = this.mapGenerator.isNavigableWater(x, y);
+                        const isNavigable = this.mapGenerator.isShipPlacementValid(x, y);
                         oceanTiles.push({ x, y, navigable: isNavigable });
                     }
                 }
@@ -216,7 +284,8 @@ class EntityManager {
     }
     
     spawnPortShips(port) {
-        const shipSpots = this.findNearbyOceanTiles(port.x, port.y, 3);
+        // Use the enhanced coastal analysis to find optimal ship placement locations
+        const shipSpots = this.findOptimalPortShipLocations(port.x, port.y, 4);
         const shipsToSpawn = Math.min(port.shipsAvailable, shipSpots.length, 2); // Max 2 ships per visit
         
         let spawned = 0;
@@ -231,7 +300,8 @@ class EntityManager {
                     color: '#8b4513',
                     fromPort: true,
                     portX: port.x,
-                    portY: port.y
+                    portY: port.y,
+                    portAccessible: true // Flag indicating this ship has good port access
                 };
                 this.addEntity(ship);
                 spawned++;
@@ -239,6 +309,30 @@ class EntityManager {
         }
         
         return spawned;
+    }
+    
+    findOptimalPortShipLocations(centerX, centerY, radius) {
+        // Use the coastal analysis to find the best ship placement locations
+        const coastalInfo = this.mapGenerator.analyzeCoastalArea(centerX, centerY, radius);
+        
+        // If we have embark points from the coastal analysis, use those
+        if (coastalInfo.bestEmbarkPoints.length > 0) {
+            // Filter out occupied positions
+            return coastalInfo.bestEmbarkPoints.filter(pos => !this.isPositionOccupied(pos.x, pos.y));
+        }
+        
+        // Fall back to finding navigable water tiles
+        const navigableWater = coastalInfo.waterTiles.filter(tile => 
+            tile.navigable && !this.isPositionOccupied(tile.x, tile.y)
+        );
+        
+        if (navigableWater.length > 0) {
+            // Sort by distance
+            return navigableWater.sort((a, b) => a.distance - b.distance);
+        }
+        
+        // If no suitable tiles found through coastal analysis, use the legacy method
+        return this.findNearbyOceanTiles(centerX, centerY, radius);
     }
     
     findNearbyOceanTiles(centerX, centerY, radius) {
@@ -252,24 +346,70 @@ class EntityManager {
                 if (tile && tile.biome === 'ocean') {
                     // Calculate distance from center
                     const distance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
-                    const isNavigable = this.mapGenerator.isNavigableWater(x, y);
+                    
+                    // Use the improved ship placement validation
+                    const isNavigable = this.mapGenerator.isShipPlacementValid(x, y);
                     const waterBodySize = this.mapGenerator.getWaterBodySize(x, y);
+                    
+                    // Check if this water tile has direct access to the port
+                    const hasPortAccess = this.hasDirectPortAccess(x, y, centerX, centerY);
                     
                     oceanTiles.push({ 
                         x, y, distance, 
                         navigable: isNavigable,
-                        waterBodySize: waterBodySize 
+                        waterBodySize: waterBodySize,
+                        portAccess: hasPortAccess
                     });
                 }
             }
         }
         
-        // Sort by navigability first, then distance, then water body size
+        // Sort by port access first, then navigability, then distance, then water body size
         return oceanTiles.sort((a, b) => {
+            if (a.portAccess !== b.portAccess) return b.portAccess - a.portAccess;
             if (a.navigable !== b.navigable) return b.navigable - a.navigable;
             if (a.distance !== b.distance) return a.distance - b.distance;
             return b.waterBodySize - a.waterBodySize;
         });
+    }
+    
+    // Check if a water tile has direct access to a port (no land blocking the path)
+    hasDirectPortAccess(waterX, waterY, portX, portY) {
+        // Simple line-of-sight check between water tile and port
+        const dx = portX - waterX;
+        const dy = portY - waterY;
+        const distance = Math.sqrt(dx*dx + dy*dy);
+        
+        // If too far, don't bother with detailed check
+        if (distance > 5) return false;
+        
+        // For very close tiles, assume access is possible
+        if (distance <= 1.5) return true;
+        
+        // Check if there's a direct path without land blocking
+        const steps = Math.max(Math.abs(dx), Math.abs(dy));
+        const xStep = dx / steps;
+        const yStep = dy / steps;
+        
+        // Check points along the line
+        for (let i = 1; i < steps; i++) {
+            const checkX = Math.round(waterX + xStep * i);
+            const checkY = Math.round(waterY + yStep * i);
+            
+            // Skip checking the endpoints
+            if ((checkX === waterX && checkY === waterY) || (checkX === portX && checkY === portY)) {
+                continue;
+            }
+            
+            const tile = this.mapGenerator.getBiomeAt(checkX, checkY);
+            
+            // If we hit land that's not the port itself, path is blocked
+            if (tile && tile.biome !== 'ocean' && !(checkX === portX && checkY === portY)) {
+                return false;
+            }
+        }
+        
+        return true;
     }
     
     getEntityInfo(type) {
