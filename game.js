@@ -1,11 +1,14 @@
 // Main game class and initialization
 class PirateSeaGame {
-    constructor() {
+    constructor(seed = null) {
+        this.seed = seed;
         this.mapGenerator = null;
         this.player = null;
         this.entityManager = null;
         this.fogOfWar = null;
         this.uiManager = null;
+        this.resourceManager = null;
+        this.playerInventory = null;
         this.gameRunning = false;
         this.treasureCollected = 0;
         this.portsVisited = 0;
@@ -21,13 +24,19 @@ class PirateSeaGame {
                 return false;
             }
             
-            // Initialize game systems
-            this.mapGenerator = new MapGenerator();
+            // Initialize game systems with seed
+            this.mapGenerator = new MapGenerator(48, 28, this.seed);
             this.mapGenerator.generateMap();
             
             this.entityManager = new EntityManager(this.mapGenerator);
             this.player = new Player(this.mapGenerator);
             this.fogOfWar = new FogOfWar(this.mapGenerator);
+            
+            // Initialize resource system
+            const seededRandom = new SeededRandom(this.seed);
+            this.resourceManager = new ResourceManager(this.mapGenerator, seededRandom);
+            this.playerInventory = new PlayerInventory(100);
+            
             this.uiManager = new UIManager(this);
             
             // Initialize display
@@ -48,6 +57,7 @@ class PirateSeaGame {
             // Welcome message
             this.uiManager.addMessage('Welcome to Pirate Sea!');
             this.uiManager.addMessage('Use arrow keys or touch controls to move.');
+            this.uiManager.updateSeedDisplay();
             this.uiManager.showGameInfo();
             
             return true;
@@ -140,8 +150,67 @@ class PirateSeaGame {
             treasureRemaining: this.entityManager.getRemainingTreasure(),
             portsVisited: this.portsVisited,
             playerMode: this.player.getMode(),
-            playerPosition: this.player.getPosition()
+            playerPosition: this.player.getPosition(),
+            seed: this.mapGenerator.getSeed()
         };
+    }
+    
+    // Resource gathering methods
+    attemptGather() {
+        if (!this.resourceManager || !this.playerInventory) {
+            this.uiManager.addMessage('Resource system not initialized');
+            return;
+        }
+        
+        // Check if player is on ship
+        if (this.player.getMode() === 'ship') {
+            this.uiManager.addMessage('Cannot gather resources while on ship');
+            return;
+        }
+        
+        // Attempt to gather at current position
+        const result = this.resourceManager.attemptGather(
+            this.player.x, 
+            this.player.y, 
+            this.playerInventory
+        );
+        
+        this.uiManager.addMessage(result.message);
+        
+        // Update inventory display if it's open
+        if (this.uiManager.isInventoryOpen()) {
+            this.uiManager.updateInventoryDisplay();
+        }
+    }
+    
+    toggleInventory() {
+        if (!this.playerInventory) {
+            this.uiManager.addMessage('Inventory system not initialized');
+            return;
+        }
+        
+        this.uiManager.toggleInventory();
+    }
+    
+    // Seed management methods
+    getSeed() {
+        return this.mapGenerator ? this.mapGenerator.getSeed() : this.seed;
+    }
+    
+    setSeed(newSeed) {
+        this.seed = newSeed;
+        if (this.mapGenerator) {
+            this.mapGenerator.setSeed(newSeed);
+            
+            // Respawn entities with new seed
+            this.entityManager.spawnEntities(this.player.x, this.player.y);
+            
+            // Update game state and render
+            this.updateGameState();
+            this.render();
+            
+            this.uiManager.addMessage(`World regenerated with seed: ${newSeed}`);
+        }
     }
     
     // Debug function to show all entities

@@ -3,10 +3,59 @@
 // Terminal-based pirate roguelike game
 const readline = require('readline');
 const ROT = require('rot-js');
+const ResourceManager = require('./resource-manager');
+const PlayerInventory = require('./player-inventory');
+
+// Seeded random number generator for deterministic procedural generation
+class SeededRandom {
+    constructor(seed = Date.now()) {
+        this.seed = seed;
+        this.state = this.hashSeed(seed);
+    }
+    
+    // Simple hash function to convert seed to initial state
+    hashSeed(seed) {
+        let hash = 0;
+        const str = seed.toString();
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32-bit integer
+        }
+        return Math.abs(hash) || 1; // Ensure non-zero
+    }
+    
+    // Linear Congruential Generator (LCG) for deterministic random numbers
+    next() {
+        this.state = (this.state * 1664525 + 1013904223) % 4294967296;
+        return this.state / 4294967296;
+    }
+    
+    // Generate random float between 0 and 1
+    random() {
+        return this.next();
+    }
+    
+    // Generate random integer between min and max (inclusive)
+    randomInt(min, max) {
+        return Math.floor(this.random() * (max - min + 1)) + min;
+    }
+    
+    // Generate random float between min and max
+    randomFloat(min, max) {
+        return this.random() * (max - min) + min;
+    }
+    
+    // Choose random element from array
+    choice(array) {
+        if (array.length === 0) return undefined;
+        return array[Math.floor(this.random() * array.length)];
+    }
+}
 
 // Import game modules (adapted for Node.js)
 class TerminalMapGenerator {
-    constructor(width = 48, height = 28) {
+    constructor(width = 48, height = 28, seed = null) {
         this.displayWidth = width;
         this.displayHeight = height;
         this.worldSize = 200;
@@ -14,7 +63,14 @@ class TerminalMapGenerator {
         this.biomes = {};
         this.cameraX = 0;
         this.cameraY = 0;
+        
+        // Initialize seeded random system
+        this.seed = seed || Date.now();
+        this.seededRandom = new SeededRandom(this.seed);
+        
         this.initializeBiomes();
+        
+        console.log(`TerminalMapGenerator initialized with seed: ${this.seed}`);
     }
 
     initializeBiomes() {
@@ -34,11 +90,18 @@ class TerminalMapGenerator {
     }
 
     generateMap() {
-        console.log('Generating infinite map system...');
+        console.log(`Generating infinite map system with seed: ${this.seed}...`);
 
         this.elevationNoise = new ROT.Noise.Simplex();
         this.moistureNoise = new ROT.Noise.Simplex();
         this.temperatureNoise = new ROT.Noise.Simplex();
+
+        // Seed the ROT.js noise generators if possible
+        if (this.elevationNoise.setSeed) {
+            this.elevationNoise.setSeed(this.seed);
+            this.moistureNoise.setSeed(this.seed + 1000);
+            this.temperatureNoise.setSeed(this.seed + 2000);
+        }
 
         console.log('Infinite map system ready');
         return this.map;
@@ -214,6 +277,77 @@ class TerminalMapGenerator {
         return this.biomes[biomeName];
     }
 
+    // Generate resource glyph for a specific position
+    generateResourceGlyph(x, y, biomeType, resourceManager) {
+        if (!resourceManager) return this.biomes[biomeType];
+        
+        const biomeConfig = resourceManager.getBiomeResources(biomeType);
+        if (!biomeConfig || !biomeConfig.glyphDistribution) {
+            return this.biomes[biomeType];
+        }
+
+        // Use position-based seeded random for deterministic glyph generation
+        const positionSeed = this.seed + (x * 1000) + (y * 1000000);
+        const positionRandom = new SeededRandom(positionSeed);
+        
+        // Calculate total weight
+        let totalWeight = 0;
+        for (const glyph of biomeConfig.glyphDistribution) {
+            totalWeight += glyph.weight;
+        }
+        
+        // Select glyph based on weight
+        const randomValue = positionRandom.random() * totalWeight;
+        let currentWeight = 0;
+        
+        for (const glyphConfig of biomeConfig.glyphDistribution) {
+            currentWeight += glyphConfig.weight;
+            if (randomValue <= currentWeight) {
+                if (glyphConfig.glyph === 'biome_fallback') {
+                    // Return original biome glyph
+                    return this.biomes[biomeType];
+                } else {
+                    // Check if location is depleted for visual representation
+                    const isDepleted = resourceManager.isLocationVisuallyDepleted(x, y);
+                    
+                    // Return resource glyph (normal or depleted variant)
+                    const resourceGlyph = resourceManager.getResourceGlyph(glyphConfig.glyph, 'terminal', isDepleted);
+                    const resourceColor = resourceManager.getResourceColor(glyphConfig.glyph, isDepleted) || this.biomes[biomeType].color;
+                    
+                    if (resourceGlyph) {
+                        return {
+                            char: resourceGlyph,
+                            color: this.convertColorToTerminal(resourceColor),
+                            walkable: this.biomes[biomeType].walkable,
+                            shipWalkable: this.biomes[biomeType].shipWalkable,
+                            resourceType: glyphConfig.glyph,
+                            depleted: isDepleted
+                        };
+                    }
+                }
+            }
+        }
+        
+        // Fallback to original biome
+        return this.biomes[biomeType];
+    }
+
+    // Convert hex color to terminal color code
+    convertColorToTerminal(hexColor) {
+        // Simple color mapping for terminal display
+        const colorMap = {
+            '#7f8c8d': '\x1b[37m',  // Gray
+            '#f39c12': '\x1b[33m',  // Orange
+            '#27ae60': '\x1b[32m',  // Green
+            '#f1c40f': '\x1b[93m',  // Yellow
+            '#34495e': '\x1b[90m',  // Dark Gray
+            '#e74c3c': '\x1b[31m',  // Red
+            '#16a085': '\x1b[36m'   // Teal
+        };
+        
+        return colorMap[hexColor] || '\x1b[37m';
+    }
+
     isWalkable(x, y, onShip = false) {
         const tile = this.getBiomeAt(x, y);
         if (!tile) return false;
@@ -358,12 +492,19 @@ getAllEntities() {
 }
 
 class TerminalGame {
-    constructor() {
-        this.mapGenerator = new TerminalMapGenerator(60, 20);
+    constructor(seed = null) {
+        this.seed = seed;
+        this.mapGenerator = new TerminalMapGenerator(60, 20, seed);
         this.entityManager = new TerminalEntityManager(this.mapGenerator);
         this.player = null;
         this.running = false;
         this.messageLog = [];
+        this.showInventory = false;
+        
+        // Initialize resource system
+        this.resourceManager = null;
+        this.playerInventory = null;
+        
         this.setupReadline();
     }
 
@@ -390,12 +531,18 @@ class TerminalGame {
         this.mapGenerator.generateMap();
         this.player = new TerminalPlayer(this.mapGenerator);
 
+        // Initialize resource system
+        this.resourceManager = new ResourceManager(this.mapGenerator, this.mapGenerator.seededRandom);
+        this.playerInventory = new PlayerInventory(500);
+
         // Spawn the starting ship near the player
         this.entityManager.spawnPlayerStartingShip(this.player.x, this.player.y);
 
         this.running = true;
         this.addMessage('Welcome to Pirate Sea! Use WASD to move, B to board/disembark, Q to quit.');
+        this.addMessage('Press G to gather resources, I to view inventory.');
         this.addMessage('A ship has been placed nearby for you to use!');
+        this.addMessage(`World seed: ${this.mapGenerator.seed}`);
         this.render();
     }
 
@@ -420,6 +567,12 @@ class TerminalGame {
                 return;
             case 'b':
                 this.toggleMode();
+                break;
+            case 'g':
+                this.attemptGather();
+                break;
+            case 'i':
+                this.toggleInventory();
                 break;
         }
 
@@ -491,6 +644,32 @@ class TerminalGame {
         }
     }
 
+    attemptGather() {
+        // Check if player is on ship
+        if (this.player.mode === 'ship') {
+            this.addMessage('Cannot gather resources while on ship');
+            return;
+        }
+
+        // Attempt to gather at current position
+        const result = this.resourceManager.attemptGather(
+            this.player.x, 
+            this.player.y, 
+            this.playerInventory
+        );
+
+        this.addMessage(result.message);
+    }
+
+    toggleInventory() {
+        this.showInventory = !this.showInventory;
+        if (this.showInventory) {
+            this.addMessage('Inventory opened');
+        } else {
+            this.addMessage('Inventory closed');
+        }
+    }
+
     render() {
         console.clear();
 
@@ -509,8 +688,6 @@ class TerminalGame {
                 const tileData = visibleTiles.find(t => t.screenX === x && t.screenY === y);
 
                 if (tileData) {
-                    const biomeInfo = this.mapGenerator.getBiomeInfo(tileData.tile.biome);
-
                     // Check if player is at this position
                     if (tileData.worldX === this.player.x && tileData.worldY === this.player.y) {
                         line += `\x1b[91m${this.player.getIcon()}\x1b[0m`;
@@ -521,7 +698,14 @@ class TerminalGame {
                             const entityInfo = this.entityManager.entityTypes[entity.type];
                             line += `${entityInfo.color}${entityInfo.char}\x1b[0m`;
                         } else {
-                            line += `${biomeInfo.color}${biomeInfo.char}\x1b[0m`;
+                            // Use resource glyph system if available
+                            const glyphInfo = this.mapGenerator.generateResourceGlyph(
+                                tileData.worldX, 
+                                tileData.worldY, 
+                                tileData.tile.biome, 
+                                this.resourceManager
+                            );
+                            line += `${glyphInfo.color}${glyphInfo.char}\x1b[0m`;
                         }
                     }
                 } else {
@@ -533,7 +717,12 @@ class TerminalGame {
 
         console.log(display);
         console.log(`\nPosition: (${this.player.x}, ${this.player.y}) | Mode: ${this.player.mode}`);
-        console.log('Controls: WASD=Move, B=Board/Disembark, Q=Quit');
+        console.log('Controls: WASD=Move, B=Board/Disembark, G=Gather, I=Inventory, Q=Quit');
+
+        // Display inventory if toggled
+        if (this.showInventory) {
+            console.log('\n' + this.playerInventory.getInventoryDisplayTerminal(this.resourceManager));
+        }
 
         // Display recent messages
         if (this.messageLog.length > 0) {
@@ -559,6 +748,20 @@ class TerminalGame {
 
 // Start the game
 if (require.main === module) {
-    const game = new TerminalGame();
+    // Check for seed argument
+    const args = process.argv.slice(2);
+    let seed = null;
+    
+    // Look for --seed argument
+    const seedIndex = args.indexOf('--seed');
+    if (seedIndex !== -1 && seedIndex + 1 < args.length) {
+        seed = parseInt(args[seedIndex + 1]);
+        if (isNaN(seed)) {
+            console.log('Invalid seed provided. Using random seed.');
+            seed = null;
+        }
+    }
+    
+    const game = new TerminalGame(seed);
     game.initialize();
 }

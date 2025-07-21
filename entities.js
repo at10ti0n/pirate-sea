@@ -8,6 +8,9 @@ class EntityManager {
             port: { char: 'P', color: '#e74c3c' },
             treasure: { char: '$', color: '#f1c40f' }
         };
+        
+        // Use the same seeded random as the map generator
+        this.seededRandom = mapGenerator.seededRandom;
     }
     
     addEntity(entity) {
@@ -124,7 +127,7 @@ class EntityManager {
         const walkableTiles = this.getAvailableWalkableTiles(centerX, centerY);
         
         for (let i = 0; i < portCount && walkableTiles.length > 0; i++) {
-            const randomIndex = Math.floor(Math.random() * walkableTiles.length);
+            const randomIndex = Math.floor(this.seededRandom.random() * walkableTiles.length);
             const tile = walkableTiles[randomIndex];
             
             const port = {
@@ -134,7 +137,7 @@ class EntityManager {
                 char: 'P',
                 color: '#e74c3c',
                 hasShips: true,
-                shipsAvailable: Math.floor(Math.random() * 3) + 1, // 1-3 ships per port
+                shipsAvailable: this.seededRandom.randomInt(1, 3), // 1-3 ships per port
                 lastVisited: null
             };
             
@@ -150,7 +153,7 @@ class EntityManager {
         const walkableTiles = this.getAvailableWalkableTiles(centerX, centerY);
         
         for (let i = 0; i < treasureCount && walkableTiles.length > 0; i++) {
-            const randomIndex = Math.floor(Math.random() * walkableTiles.length);
+            const randomIndex = Math.floor(this.seededRandom.random() * walkableTiles.length);
             const tile = walkableTiles[randomIndex];
             
             const treasure = {
@@ -173,7 +176,7 @@ class EntityManager {
         const oceanTiles = this.getAvailableOceanTiles(centerX, centerY);
         
         for (let i = 0; i < shipCount && oceanTiles.length > 0; i++) {
-            const randomIndex = Math.floor(Math.random() * oceanTiles.length);
+            const randomIndex = Math.floor(this.seededRandom.random() * oceanTiles.length);
             const tile = oceanTiles[randomIndex];
             
             const ship = {
