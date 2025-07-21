@@ -1,6 +1,6 @@
 // Map generation and biome system
 class MapGenerator {
-    constructor(width = 48, height = 28) {
+    constructor(width = 48, height = 28, seed = null) {
         this.displayWidth = width;
         this.displayHeight = height;
         this.worldSize = 200; // Much larger world
@@ -8,7 +8,14 @@ class MapGenerator {
         this.biomes = {};
         this.cameraX = 0;
         this.cameraY = 0;
+        
+        // Initialize seeded random system
+        this.seed = seed || Date.now();
+        this.seededRandom = new SeededRandom(this.seed);
+        
         this.initializeBiomes();
+        
+        console.log(`MapGenerator initialized with seed: ${this.seed}`);
     }
     
     initializeBiomes() {
@@ -28,12 +35,19 @@ class MapGenerator {
     }
     
     generateMap() {
-        console.log('Generating infinite map system...');
+        console.log(`Generating infinite map system with seed: ${this.seed}...`);
         
-        // Initialize noise generators
+        // Initialize seeded noise generators
         this.elevationNoise = new ROT.Noise.Simplex();
         this.moistureNoise = new ROT.Noise.Simplex();
         this.temperatureNoise = new ROT.Noise.Simplex();
+        
+        // Seed the ROT.js noise generators if possible
+        if (this.elevationNoise.setSeed) {
+            this.elevationNoise.setSeed(this.seed);
+            this.moistureNoise.setSeed(this.seed + 1000);
+            this.temperatureNoise.setSeed(this.seed + 2000);
+        }
         
         console.log('Infinite map system ready');
         return this.map;
@@ -348,6 +362,61 @@ class MapGenerator {
         }
         return walkableTiles;
     }
+
+    // Generate resource glyph for a specific position (web version)
+    generateResourceGlyph(x, y, biomeType, resourceManager) {
+        if (!resourceManager) return this.biomes[biomeType];
+        
+        const biomeConfig = resourceManager.getBiomeResources(biomeType);
+        if (!biomeConfig || !biomeConfig.glyphDistribution) {
+            return this.biomes[biomeType];
+        }
+
+        // Use position-based seeded random for deterministic glyph generation
+        const positionSeed = this.seed + (x * 1000) + (y * 1000000);
+        const positionRandom = new SeededRandom(positionSeed);
+        
+        // Calculate total weight
+        let totalWeight = 0;
+        for (const glyph of biomeConfig.glyphDistribution) {
+            totalWeight += glyph.weight;
+        }
+        
+        // Select glyph based on weight
+        const randomValue = positionRandom.random() * totalWeight;
+        let currentWeight = 0;
+        
+        for (const glyphConfig of biomeConfig.glyphDistribution) {
+            currentWeight += glyphConfig.weight;
+            if (randomValue <= currentWeight) {
+                if (glyphConfig.glyph === 'biome_fallback') {
+                    // Return original biome glyph
+                    return this.biomes[biomeType];
+                } else {
+                    // Check if location is depleted for visual representation
+                    const isDepleted = resourceManager.isLocationVisuallyDepleted(x, y);
+                    
+                    // Return resource glyph (normal or depleted variant)
+                    const resourceGlyph = resourceManager.getResourceGlyph(glyphConfig.glyph, 'web', isDepleted);
+                    const resourceColor = resourceManager.getResourceColor(glyphConfig.glyph, isDepleted) || this.biomes[biomeType].color;
+                    
+                    if (resourceGlyph) {
+                        return {
+                            char: resourceGlyph,
+                            color: resourceColor,
+                            walkable: this.biomes[biomeType].walkable,
+                            shipWalkable: this.biomes[biomeType].shipWalkable,
+                            resourceType: glyphConfig.glyph,
+                            depleted: isDepleted
+                        };
+                    }
+                }
+            }
+        }
+        
+        // Fallback to original biome
+        return this.biomes[biomeType];
+    }
     
     // Analyze coastal areas for ship boarding/unboarding
     analyzeCoastalArea(x, y, radius = 3) {
@@ -495,5 +564,31 @@ class MapGenerator {
         for (const [key, tile] of this.map) {
             tile.visible = false;
         }
+    }
+    
+    // Seed management methods
+    getSeed() {
+        return this.seed;
+    }
+    
+    setSeed(newSeed) {
+        this.seed = newSeed;
+        this.seededRandom.setSeed(newSeed);
+        
+        // Clear existing map to regenerate with new seed
+        this.map.clear();
+        
+        // Reinitialize noise generators with new seed
+        this.generateMap();
+        
+        console.log(`Map seed changed to: ${this.seed}`);
+    }
+    
+    // Generate deterministic random number for this position
+    getSeededRandomAt(x, y, offset = 0) {
+        // Create a deterministic seed based on position and global seed
+        const positionSeed = this.seed + (x * 73856093) + (y * 19349663) + offset;
+        const tempRandom = new SeededRandom(positionSeed);
+        return tempRandom.random();
     }
 }

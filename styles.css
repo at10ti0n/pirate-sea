@@ -323,16 +323,68 @@ h1 {
     gap: 20px;
 }
 
-.messages, .legend {
+.seed-controls, .messages, .legend {
     background-color: var(--secondary-color);
     border: 2px solid var(--border-color);
     border-radius: 8px;
     padding: 20px;
 }
 
-.messages h3, .legend h3 {
+.seed-controls h3, .messages h3, .legend h3 {
     color: var(--accent-color);
     margin-bottom: 15px;
+}
+
+/* Seed controls styles */
+.seed-controls {
+    grid-column: 1 / -1;
+}
+
+.seed-input-group {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+#seed-input {
+    flex: 1;
+    min-width: 150px;
+    padding: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--primary-color);
+    color: var(--text-color);
+    font-size: 14px;
+    font-family: 'Courier New', monospace;
+}
+
+#generate-btn, #copy-seed-btn {
+    padding: 8px 15px;
+    border: none;
+    border-radius: 4px;
+    background: var(--accent-color);
+    color: white;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    transition: background-color 0.2s;
+    white-space: nowrap;
+}
+
+#generate-btn:hover, #copy-seed-btn:hover {
+    background: #2980b9;
+}
+
+#current-seed {
+    font-size: 14px;
+    color: #bdc3c7;
+    font-family: 'Courier New', monospace;
+}
+
+#seed-display {
+    color: #f39c12;
+    font-weight: bold;
 }
 
 #message-log {

@@ -25,6 +25,8 @@
                 <div class="overlay-action-buttons">
                     <button id="overlay-board-btn" class="overlay-action-btn" style="display: none;">Board</button>
                     <button id="overlay-unboard-btn" class="overlay-action-btn" style="display: none;">Unboard</button>
+                    <button id="overlay-gather-btn" class="overlay-action-btn">Gather</button>
+                    <button id="overlay-inventory-btn" class="overlay-action-btn">Inventory</button>
                 </div>
             </div>
         </div>
@@ -42,6 +44,8 @@
                 <div class="action-buttons">
                     <button id="board-btn" class="action-btn" style="display: none;">Board Ship</button>
                     <button id="unboard-btn" class="action-btn" style="display: none;">Unboard</button>
+                    <button id="gather-btn" class="action-btn">Gather (G)</button>
+                    <button id="inventory-btn" class="action-btn">Inventory (I)</button>
                 </div>
             </div>
             
@@ -51,13 +55,30 @@
                 <p>B: Board ship / Embark</p>
                 <p>E: Embark from coast</p>
                 <p>U: Unboard ship</p>
+                <p>G: Gather resources</p>
+                <p>I: Toggle inventory</p>
             </div>
         </div>
         
         <div class="info-area">
+            <div class="seed-controls">
+                <h3>World Seed</h3>
+                <div class="seed-input-group">
+                    <input type="number" id="seed-input" placeholder="Enter seed (optional)">
+                    <button id="generate-btn">Generate World</button>
+                    <button id="copy-seed-btn">Copy Seed</button>
+                </div>
+                <div id="current-seed">Current seed: <span id="seed-display">Loading...</span></div>
+            </div>
+            
             <div class="messages">
                 <h3>Messages</h3>
                 <div id="message-log"></div>
+            </div>
+            
+            <div class="inventory" id="inventory-display" style="display: none;">
+                <h3>Inventory</h3>
+                <div id="inventory-content">Empty</div>
             </div>
             
             <div class="legend">
@@ -75,10 +96,13 @@
     <script src="https://cdn.jsdelivr.net/npm/rot-js@2.2.0/dist/rot.min.js"></script>
     
     <!-- Game Modules -->
+    <script src="seeded-random.js"></script>
     <script src="map.js"></script>
     <script src="entities.js"></script>
     <script src="player.js"></script>
     <script src="fog.js"></script>
+    <script src="resource-manager.js"></script>
+    <script src="player-inventory.js"></script>
     <script src="ui.js"></script>
     <script src="game.js"></script>
 </body>

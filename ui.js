@@ -15,6 +15,9 @@ class UIManager {
         // Touch controls
         this.setupTouchControls();
         
+        // Seed controls
+        this.setupSeedControls();
+        
         // Prevent default touch behaviors that might interfere
         document.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
         document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
@@ -92,6 +95,32 @@ class UIManager {
             overlayUnboardBtn.addEventListener('touchstart', (e) => { e.preventDefault(); this.handleUnboarding(); });
             overlayUnboardBtn.addEventListener('click', (e) => { e.preventDefault(); this.handleUnboarding(); });
         }
+        
+        // Gathering and inventory buttons
+        const gatherBtn = document.getElementById('gather-btn');
+        const inventoryBtn = document.getElementById('inventory-btn');
+        const overlayGatherBtn = document.getElementById('overlay-gather-btn');
+        const overlayInventoryBtn = document.getElementById('overlay-inventory-btn');
+        
+        if (gatherBtn) {
+            gatherBtn.addEventListener('touchstart', () => this.handleGathering());
+            gatherBtn.addEventListener('click', () => this.handleGathering());
+        }
+        
+        if (inventoryBtn) {
+            inventoryBtn.addEventListener('touchstart', () => this.handleInventoryToggle());
+            inventoryBtn.addEventListener('click', () => this.handleInventoryToggle());
+        }
+        
+        if (overlayGatherBtn) {
+            overlayGatherBtn.addEventListener('touchstart', (e) => { e.preventDefault(); this.handleGathering(); });
+            overlayGatherBtn.addEventListener('click', (e) => { e.preventDefault(); this.handleGathering(); });
+        }
+        
+        if (overlayInventoryBtn) {
+            overlayInventoryBtn.addEventListener('touchstart', (e) => { e.preventDefault(); this.handleInventoryToggle(); });
+            overlayInventoryBtn.addEventListener('click', (e) => { e.preventDefault(); this.handleInventoryToggle(); });
+        }
     }
     
     handleKeyPress(event) {
@@ -123,6 +152,14 @@ class UIManager {
             case 'e':
             case 'E':
                 this.handleEmbarking();
+                break;
+            case 'g':
+            case 'G':
+                this.handleGathering();
+                break;
+            case 'i':
+            case 'I':
+                this.handleInventoryToggle();
                 break;
         }
     }
@@ -200,6 +237,16 @@ class UIManager {
         }
     }
     
+    handleGathering() {
+        if (!this.game) return;
+        this.game.attemptGather();
+    }
+    
+    handleInventoryToggle() {
+        if (!this.game) return;
+        this.game.toggleInventory();
+    }
+    
     initializeDisplay() {
         const gameDisplay = document.getElementById('game-display');
         if (!gameDisplay) {
@@ -250,16 +297,28 @@ class UIManager {
         const visibilityState = this.game.fogOfWar.getTileVisibilityState(worldX, worldY);
         if (visibilityState === 'hidden') return;
         
-        const biomeInfo = this.game.mapGenerator.getBiomeInfo(tile.biome);
+        // Use resource glyph system if available
+        let tileInfo;
+        if (this.game.mapGenerator.generateResourceGlyph && this.game.resourceManager) {
+            tileInfo = this.game.mapGenerator.generateResourceGlyph(
+                worldX, 
+                worldY, 
+                tile.biome, 
+                this.game.resourceManager
+            );
+        } else {
+            tileInfo = this.game.mapGenerator.getBiomeInfo(tile.biome);
+        }
+        
         const modifier = this.game.fogOfWar.getVisibilityModifier(worldX, worldY);
         
         // Adjust color based on visibility
-        let color = biomeInfo.color;
+        let color = tileInfo.color;
         if (modifier < 1.0) {
             color = this.adjustColorBrightness(color, modifier);
         }
         
-        this.display.draw(screenX, screenY, biomeInfo.char, color);
+        this.display.draw(screenX, screenY, tileInfo.char, color);
     }
     
     renderEntities() {
@@ -387,10 +446,97 @@ class UIManager {
         this.updateMessageDisplay();
     }
     
+    setupSeedControls() {
+        const seedInput = document.getElementById('seed-input');
+        const generateBtn = document.getElementById('generate-btn');
+        const copySeedBtn = document.getElementById('copy-seed-btn');
+        const seedDisplay = document.getElementById('seed-display');
+        
+        if (generateBtn) {
+            generateBtn.addEventListener('click', () => {
+                const seedValue = seedInput.value.trim();
+                let newSeed = null;
+                
+                if (seedValue) {
+                    newSeed = parseInt(seedValue);
+                    if (isNaN(newSeed)) {
+                        this.addMessage('Invalid seed! Using random seed.');
+                        newSeed = null;
+                    }
+                }
+                
+                // If no seed provided, generate random one
+                if (newSeed === null) {
+                    newSeed = Math.floor(Math.random() * 1000000);
+                }
+                
+                this.game.setSeed(newSeed);
+                this.updateSeedDisplay();
+                seedInput.value = '';
+            });
+        }
+        
+        if (copySeedBtn) {
+            copySeedBtn.addEventListener('click', () => {
+                const currentSeed = this.game.getSeed();
+                if (navigator.clipboard) {
+                    navigator.clipboard.writeText(currentSeed.toString()).then(() => {
+                        this.addMessage(`Seed ${currentSeed} copied to clipboard!`);
+                    }).catch(() => {
+                        this.addMessage(`Current seed: ${currentSeed}`);
+                    });
+                } else {
+                    // Fallback for older browsers
+                    this.addMessage(`Current seed: ${currentSeed}`);
+                }
+            });
+        }
+        
+        // Update seed display initially
+        setTimeout(() => this.updateSeedDisplay(), 100);
+    }
+    
+    updateSeedDisplay() {
+        const seedDisplay = document.getElementById('seed-display');
+        if (seedDisplay && this.game) {
+            const currentSeed = this.game.getSeed();
+            seedDisplay.textContent = currentSeed || 'Loading...';
+        }
+    }
+    
     showGameInfo() {
         const treasureCount = this.game.entityManager.getRemainingTreasure();
         const playerMode = this.game.player.getMode();
+        const currentSeed = this.game.getSeed();
         
-        this.addMessage(`Mode: ${playerMode}, Treasure remaining: ${treasureCount}`);
+        this.addMessage(`Mode: ${playerMode}, Treasure: ${treasureCount}, Seed: ${currentSeed}`);
+    }
+    
+    // Inventory management methods
+    toggleInventory() {
+        const inventoryDisplay = document.getElementById('inventory-display');
+        if (!inventoryDisplay) return;
+        
+        if (inventoryDisplay.style.display === 'none') {
+            inventoryDisplay.style.display = 'block';
+            this.updateInventoryDisplay();
+            this.addMessage('Inventory opened');
+        } else {
+            inventoryDisplay.style.display = 'none';
+            this.addMessage('Inventory closed');
+        }
+    }
+    
+    isInventoryOpen() {
+        const inventoryDisplay = document.getElementById('inventory-display');
+        return inventoryDisplay && inventoryDisplay.style.display !== 'none';
+    }
+    
+    updateInventoryDisplay() {
+        const inventoryContent = document.getElementById('inventory-content');
+        if (!inventoryContent || !this.game.playerInventory) return;
+        
+        const inventoryText = this.game.playerInventory.getInventoryDisplay(this.game.resourceManager);
+        inventoryContent.innerHTML = inventoryText.replace(/\n/g, '<br>');
     }
 }

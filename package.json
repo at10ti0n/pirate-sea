@@ -8,7 +8,8 @@
     "dev": "nodemon server.js",
     "web": "node server.js",
     "terminal": "node terminal-game.js",
-    "play": "node terminal-game.js"
+    "play": "node terminal-game.js",
+    "seed": "node terminal-game.js --seed"
   },
   "dependencies": {
     "express": "^4.18.2",
