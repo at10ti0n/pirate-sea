@@ -106,6 +106,7 @@ class PlayerInventory {
     }
 
     hasSpace(quantity = 1) {
+        if (quantity < 0) return false;
         return (this.totalItems + quantity) <= this.capacity;
     }
 
@@ -129,7 +130,7 @@ class PlayerInventory {
         return Array.from(this.resources.keys());
     }
 
-    getResourceCount() {
+    getResourceTypeCount() {
         return this.resources.size;
     }
 
@@ -187,7 +188,16 @@ class PlayerInventory {
         lines.push(`Inventory (${this.totalItems}/${this.capacity}):`);
         lines.push('─'.repeat(30));
 
-        for (const [resourceType, data] of this.resources) {
+        // Sort resources by name for consistent display
+        const sortedResources = Array.from(this.resources.entries()).sort((a, b) => {
+            const nameA = resourceManager ? 
+                (resourceManager.getResourceInfo(a[0])?.name || a[0]) : a[0];
+            const nameB = resourceManager ? 
+                (resourceManager.getResourceInfo(b[0])?.name || b[0]) : b[0];
+            return nameA.localeCompare(nameB);
+        });
+
+        for (const [resourceType, data] of sortedResources) {
             let displayName = resourceType;
             let icon = '';
 
@@ -212,10 +222,30 @@ class PlayerInventory {
         }
 
         const lines = [];
-        lines.push(`Inventory (${this.totalItems}/${this.capacity}):`);
+        
+        // Header with capacity indicator
+        const percentage = this.capacity > 0 ? Math.round((this.totalItems / this.capacity) * 100) : 0;
+        lines.push(`Inventory (${this.totalItems}/${this.capacity} - ${percentage}%):`);
+        
+        // Capacity bar
+        const barWidth = 20;
+        const fillWidth = Math.round((this.totalItems / this.capacity) * barWidth);
+        const emptyWidth = barWidth - fillWidth;
+        const capacityBar = '[' + '█'.repeat(fillWidth) + '░'.repeat(emptyWidth) + ']';
+        lines.push(capacityBar);
         lines.push('-'.repeat(30));
 
-        for (const [resourceType, data] of this.resources) {
+        // Sort resources by name for consistent display (same as web version)
+        const sortedResources = Array.from(this.resources.entries()).sort((a, b) => {
+            const nameA = resourceManager ? 
+                (resourceManager.getResourceInfo(a[0])?.name || a[0]) : a[0];
+            const nameB = resourceManager ? 
+                (resourceManager.getResourceInfo(b[0])?.name || b[0]) : b[0];
+            return nameA.localeCompare(nameB);
+        });
+
+        // Resource list with better formatting
+        for (const [resourceType, data] of sortedResources) {
             let displayName = resourceType;
             let char = '';
 
@@ -228,7 +258,11 @@ class PlayerInventory {
                 }
             }
 
-            lines.push(`${char}${displayName}: ${data.quantity}`);
+            // Format with consistent spacing
+            const nameField = `${char}${displayName}`;
+            const quantityField = `${data.quantity}`;
+            const padding = Math.max(1, 20 - nameField.length);
+            lines.push(`${nameField}${' '.repeat(padding)}${quantityField}`);
         }
 
         return lines.join('\n');

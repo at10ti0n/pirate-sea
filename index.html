@@ -27,6 +27,9 @@
                     <button id="overlay-unboard-btn" class="overlay-action-btn" style="display: none;">Unboard</button>
                     <button id="overlay-gather-btn" class="overlay-action-btn">Gather</button>
                     <button id="overlay-inventory-btn" class="overlay-action-btn">Inventory</button>
+                    <button id="overlay-examine-btn" class="overlay-action-btn">Examine</button>
+                    <button id="overlay-help-btn" class="overlay-action-btn">Help</button>
+                    <button id="overlay-stats-btn" class="overlay-action-btn">Stats</button>
                 </div>
             </div>
         </div>
@@ -46,6 +49,9 @@
                     <button id="unboard-btn" class="action-btn" style="display: none;">Unboard</button>
                     <button id="gather-btn" class="action-btn">Gather (G)</button>
                     <button id="inventory-btn" class="action-btn">Inventory (I)</button>
+                    <button id="examine-btn" class="action-btn">Examine (X)</button>
+                    <button id="help-btn" class="action-btn">Help (H)</button>
+                    <button id="stats-btn" class="action-btn">Stats (T)</button>
                 </div>
             </div>
             
@@ -57,6 +63,9 @@
                 <p>U: Unboard ship</p>
                 <p>G: Gather resources</p>
                 <p>I: Toggle inventory</p>
+                <p>X: Examine location</p>
+                <p>H: Resource help</p>
+                <p>T: Gathering statistics</p>
             </div>
         </div>
         
@@ -71,6 +80,16 @@
                 <div id="current-seed">Current seed: <span id="seed-display">Loading...</span></div>
             </div>
             
+            <div class="save-controls">
+                <h3>Game Progress</h3>
+                <div class="save-input-group">
+                    <button id="save-btn">Save Game</button>
+                    <button id="load-btn">Load Game</button>
+                    <button id="auto-save-toggle">Auto-Save: ON</button>
+                </div>
+                <div id="save-status" class="save-status"></div>
+            </div>
+            
             <div class="messages">
                 <h3>Messages</h3>
                 <div id="message-log"></div>
@@ -78,7 +97,15 @@
             
             <div class="inventory" id="inventory-display" style="display: none;">
                 <h3>Inventory</h3>
-                <div id="inventory-content">Empty</div>
+                <div id="inventory-capacity" class="inventory-capacity">
+                    <div class="capacity-bar">
+                        <div class="capacity-fill" style="width: 0%"></div>
+                    </div>
+                    <div class="capacity-text">0/100 (0%)</div>
+                </div>
+                <div id="inventory-content">
+                    <div class="inventory-empty">Inventory is empty</div>
+                </div>
             </div>
             
             <div class="legend">

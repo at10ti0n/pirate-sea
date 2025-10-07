@@ -1,3 +1,5 @@
+const ROT = require('rot-js');
+
 // Fog of war system using rot.js FOV
 class FogOfWar {
     constructor(mapGenerator) {
@@ -19,10 +21,15 @@ class FogOfWar {
         // Clear current visibility
         this.mapGenerator.clearVisibility();
         
-        // Calculate FOV from player position
+        // Calculate FOV from player position with shadowcasting
         this.fov.compute(playerX, playerY, this.viewRadius, (x, y, r, visibility) => {
-            // visibility is a value between 0 and 1
-            if (visibility > 0) {
+            // Apply circular boundary constraint
+            const dx = x - playerX;
+            const dy = y - playerY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            // Only make tiles visible if they're within circular radius AND have line of sight
+            if (visibility > 0 && distance <= this.viewRadius) {
                 this.mapGenerator.setVisibility(x, y, true);
             }
         });
@@ -68,8 +75,14 @@ class FogOfWar {
         return state !== 'hidden';
     }
     
-    shouldRenderEntity(x, y) {
-        // Only render entities in currently visible tiles
+    shouldRenderEntity(x, y, entityType = null) {
+        // Special handling for important entities like ships
+        if (entityType === 'ship') {
+            // Ships should be visible in explored areas (to prevent players from losing them)
+            return this.isExplored(x, y);
+        }
+        
+        // Other entities only render in currently visible tiles
         return this.isVisible(x, y);
     }
     
@@ -110,3 +123,5 @@ class FogOfWar {
         return this.viewRadius;
     }
 }
+
+module.exports = FogOfWar;

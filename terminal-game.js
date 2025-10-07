@@ -5,6 +5,7 @@ const readline = require('readline');
 const ROT = require('rot-js');
 const ResourceManager = require('./resource-manager');
 const PlayerInventory = require('./player-inventory');
+const FogOfWar = require('./fog');
 
 // Seeded random number generator for deterministic procedural generation
 class SeededRandom {
@@ -359,6 +360,32 @@ class TerminalMapGenerator {
             return biomeInfo.walkable;
         }
     }
+
+    // Fog of war visibility management methods
+    clearVisibility() {
+        // Clear visibility for all loaded tiles
+        for (const [key, tile] of this.map) {
+            if (tile.visible) {
+                tile.explored = true; // Mark as explored when losing visibility
+                tile.visible = false;
+            }
+        }
+    }
+    
+    setVisibility(x, y, visible) {
+        const tile = this.generateChunkAt(x, y);
+        if (tile) {
+            tile.visible = visible;
+            if (visible) {
+                tile.explored = true;
+            }
+        }
+    }
+    
+    getTileVisibility(x, y) {
+        const tile = this.getBiomeAt(x, y);
+        return tile ? { visible: tile.visible, explored: tile.explored } : { visible: false, explored: false };
+    }
 }
 
 class TerminalPlayer {
@@ -501,9 +528,21 @@ class TerminalGame {
         this.messageLog = [];
         this.showInventory = false;
         
+        // Initialize fog of war system
+        this.fogOfWar = null;
+        
         // Initialize resource system
         this.resourceManager = null;
         this.playerInventory = null;
+        
+        // Gathering statistics tracking
+        this.gatheringStats = {
+            totalAttempts: 0,
+            successfulGathers: 0,
+            failedGathers: 0,
+            resourcesGathered: {},
+            sessionStartTime: Date.now()
+        };
         
         this.setupReadline();
     }
@@ -525,42 +564,97 @@ class TerminalGame {
     }
 
     initialize() {
-        console.clear();
-        console.log('Initializing Pirate Sea Terminal Edition...');
+        try {
+            console.clear();
+            console.log('Initializing Pirate Sea Terminal Edition...');
 
-        this.mapGenerator.generateMap();
-        this.player = new TerminalPlayer(this.mapGenerator);
+            this.mapGenerator.generateMap();
+            this.player = new TerminalPlayer(this.mapGenerator);
 
-        // Initialize resource system
-        this.resourceManager = new ResourceManager(this.mapGenerator, this.mapGenerator.seededRandom);
-        this.playerInventory = new PlayerInventory(500);
+            // Initialize fog of war system with error handling
+            try {
+                this.fogOfWar = new FogOfWar(this.mapGenerator);
+                this.fogOfWar.updateVisibility(this.player.x, this.player.y);
+            } catch (fogError) {
+                console.warn('Failed to initialize fog of war:', fogError);
+                this.fogOfWar = null; // Graceful degradation
+            }
 
-        // Spawn the starting ship near the player
-        this.entityManager.spawnPlayerStartingShip(this.player.x, this.player.y);
+            // Initialize resource system with error handling
+            try {
+                this.resourceManager = new ResourceManager(this.mapGenerator, this.mapGenerator.seededRandom);
+                this.playerInventory = new PlayerInventory(500);
+                
+                // Validate resource system
+                const validation = this.validateResourceSystem();
+                if (!validation.isValid) {
+                    console.warn('Resource system validation issues:', validation.issues);
+                }
+                
+            } catch (resourceError) {
+                console.error('Failed to initialize resource system:', resourceError);
+                this.resourceManager = null;
+                this.playerInventory = null;
+            }
 
-        this.running = true;
-        this.addMessage('Welcome to Pirate Sea! Use WASD to move, B to board/disembark, Q to quit.');
-        this.addMessage('Press G to gather resources, I to view inventory.');
-        this.addMessage('A ship has been placed nearby for you to use!');
-        this.addMessage(`World seed: ${this.mapGenerator.seed}`);
-        this.render();
+            // Spawn the starting ship near the player
+            this.entityManager.spawnPlayerStartingShip(this.player.x, this.player.y);
+
+            this.running = true;
+            this.addMessage('Welcome to Pirate Sea! Use WASD to move, B to board/disembark, Q to quit.');
+            if (this.resourceManager) {
+                this.addMessage('Press G to gather resources, I to view inventory, X to examine, H for help.');
+            }
+            this.addMessage('A ship has been placed nearby for you to use!');
+            this.addMessage(`World seed: ${this.mapGenerator.seed}`);
+            this.render();
+            
+        } catch (error) {
+            console.error('Failed to initialize terminal game:', error);
+            console.log('Press Ctrl+C to exit');
+        }
+    }
+    
+    // Validate resource system integrity
+    validateResourceSystem() {
+        const issues = [];
+        
+        if (!this.resourceManager) {
+            issues.push('ResourceManager not initialized');
+        }
+        
+        if (!this.playerInventory) {
+            issues.push('PlayerInventory not initialized');
+        } else {
+            const inventoryValidation = this.playerInventory.validateInventory();
+            if (!inventoryValidation.isValid) {
+                issues.push(...inventoryValidation.issues);
+            }
+        }
+        
+        return {
+            isValid: issues.length === 0,
+            issues: issues
+        };
     }
 
     handleKeyPress(key) {
         if (!key) return;
 
+        let playerMoved = false;
+
         switch (key.name) {
             case 'w':
-                this.player.move(0, -1);
+                playerMoved = this.player.move(0, -1);
                 break;
             case 's':
-                this.player.move(0, 1);
+                playerMoved = this.player.move(0, 1);
                 break;
             case 'a':
-                this.player.move(-1, 0);
+                playerMoved = this.player.move(-1, 0);
                 break;
             case 'd':
-                this.player.move(1, 0);
+                playerMoved = this.player.move(1, 0);
                 break;
             case 'q':
                 this.quit();
@@ -574,94 +668,233 @@ class TerminalGame {
             case 'i':
                 this.toggleInventory();
                 break;
+            case 'x':
+                this.examineLocation();
+                break;
+            case 'h':
+                this.showGatheringHelp();
+                break;
+            case 't':
+                this.showGatheringStats();
+                break;
+        }
+
+        // Update fog of war after successful player movement
+        if (playerMoved && this.fogOfWar) {
+            try {
+                this.fogOfWar.updateVisibility(this.player.x, this.player.y);
+            } catch (error) {
+                console.warn('Fog of war update failed after player movement:', error);
+                // Graceful degradation - disable fog of war to prevent repeated errors
+                this.fogOfWar = null;
+                this.addMessage('Fog of war disabled due to error');
+            }
         }
 
         this.render();
     }
 
     toggleMode() {
-        if (this.player.mode === 'foot') {
-            // Check if there's a ship at the current position or adjacent
-            const currentEntity = this.entityManager.getEntityAt(this.player.x, this.player.y);
-            if (currentEntity && currentEntity.type === 'ship') {
-                // Remove the ship entity since player is boarding it
-                this.entityManager.removeEntity(this.player.x, this.player.y);
-                this.player.mode = 'ship';
-                this.addMessage('You board the ship!');
-                return;
-            }
+        try {
+            if (this.player.mode === 'foot') {
+                // Validate inventory state before boarding
+                if (this.playerInventory) {
+                    const inventoryValidation = this.playerInventory.validateInventory();
+                    if (!inventoryValidation.isValid) {
+                        console.warn('Inventory validation issues before boarding:', inventoryValidation.issues);
+                    }
+                }
+                
+                // Check if there's a ship at the current position or adjacent
+                const currentEntity = this.entityManager.getEntityAt(this.player.x, this.player.y);
+                if (currentEntity && currentEntity.type === 'ship') {
+                    // Remove the ship entity since player is boarding it
+                    this.entityManager.removeEntity(this.player.x, this.player.y);
+                    this.player.mode = 'ship';
+                    this.addMessage('You board the ship!');
+                    
+                    // Update fog of war from new position
+                    if (this.fogOfWar) {
+                        try {
+                            this.fogOfWar.updateVisibility(this.player.x, this.player.y);
+                        } catch (error) {
+                            console.warn('Fog of war update failed after boarding:', error);
+                            // Graceful degradation - disable fog of war to prevent repeated errors
+                            this.fogOfWar = null;
+                            this.addMessage('Fog of war disabled due to error');
+                        }
+                    }
+                    return;
+                }
 
-            // Check adjacent positions for ships (including diagonals)
-            const directions = [
-                [0, 1], [0, -1], [1, 0], [-1, 0],  // Cardinal directions
-                [1, 1], [1, -1], [-1, 1], [-1, -1] // Diagonal directions
-            ];
-            for (const [dx, dy] of directions) {
-                const entity = this.entityManager.getEntityAt(this.player.x + dx, this.player.y + dy);
-                if (entity && entity.type === 'ship') {
-                    // Check if the ship position is navigable water
-                    const shipTile = this.mapGenerator.getBiomeAt(this.player.x + dx, this.player.y + dy);
-                    if (shipTile && shipTile.biome === 'ocean') {
-                        // Remove the ship entity since player is boarding it
-                        this.entityManager.removeEntity(this.player.x + dx, this.player.y + dy);
+                // Check adjacent positions for ships (including diagonals)
+                const directions = [
+                    [0, 1], [0, -1], [1, 0], [-1, 0],  // Cardinal directions
+                    [1, 1], [1, -1], [-1, 1], [-1, -1] // Diagonal directions
+                ];
+                for (const [dx, dy] of directions) {
+                    const entity = this.entityManager.getEntityAt(this.player.x + dx, this.player.y + dy);
+                    if (entity && entity.type === 'ship') {
+                        // Check if the ship position is navigable water
+                        const shipTile = this.mapGenerator.getBiomeAt(this.player.x + dx, this.player.y + dy);
+                        if (shipTile && shipTile.biome === 'ocean') {
+                            // Remove the ship entity since player is boarding it
+                            this.entityManager.removeEntity(this.player.x + dx, this.player.y + dy);
 
-                        // Move to ship position and board it
+                            // Move to ship position and board it
+                            this.player.x += dx;
+                            this.player.y += dy;
+                            this.player.mode = 'ship';
+                            this.addMessage('You board the ship!');
+                            
+                            // Update fog of war from new position
+                            if (this.fogOfWar) {
+                                try {
+                                    this.fogOfWar.updateVisibility(this.player.x, this.player.y);
+                                } catch (error) {
+                                    console.warn('Fog of war update failed after boarding ship:', error);
+                                    // Graceful degradation - disable fog of war to prevent repeated errors
+                                    this.fogOfWar = null;
+                                    this.addMessage('Fog of war disabled due to error');
+                                }
+                            }
+                            return;
+                        }
+                    }
+                }
+
+                this.addMessage('No ship nearby to board!');
+                
+            } else if (this.player.mode === 'ship') {
+                // Check for nearby land to disembark
+                const directions = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+                for (const [dx, dy] of directions) {
+                    const landTile = this.mapGenerator.getBiomeAt(this.player.x + dx, this.player.y + dy);
+                    if (landTile && this.mapGenerator.isWalkable(this.player.x + dx, this.player.y + dy, false)) {
+                        // Leave ship at current position
+                        const ship = {
+                            type: 'ship',
+                            x: this.player.x,
+                            y: this.player.y,
+                            char: 'S',
+                            color: '\x1b[33m'
+                        };
+                        this.entityManager.addEntity(ship);
+
+                        // Move player to land
                         this.player.x += dx;
                         this.player.y += dy;
-                        this.player.mode = 'ship';
-                        this.addMessage('You board the ship!');
+                        this.player.mode = 'foot';
+                        this.addMessage('You disembark onto land!');
+                        
+                        // Update fog of war from new position
+                        if (this.fogOfWar) {
+                            try {
+                                this.fogOfWar.updateVisibility(this.player.x, this.player.y);
+                            } catch (error) {
+                                console.warn('Fog of war update failed after disembarking:', error);
+                                // Graceful degradation - disable fog of war to prevent repeated errors
+                                this.fogOfWar = null;
+                                this.addMessage('Fog of war disabled due to error');
+                            }
+                        }
+                        
+                        // Validate inventory state after unboarding
+                        if (this.playerInventory) {
+                            const inventoryValidation = this.playerInventory.validateInventory();
+                            if (!inventoryValidation.isValid) {
+                                console.warn('Inventory validation issues after unboarding:', inventoryValidation.issues);
+                            }
+                        }
+                        
                         return;
                     }
                 }
+                this.addMessage('No land nearby to disembark!');
             }
-
-            this.addMessage('No ship nearby to board!');
-        } else if (this.player.mode === 'ship') {
-            // Check for nearby land to disembark
-            const directions = [[0, 1], [0, -1], [1, 0], [-1, 0]];
-            for (const [dx, dy] of directions) {
-                const landTile = this.mapGenerator.getBiomeAt(this.player.x + dx, this.player.y + dy);
-                if (landTile && this.mapGenerator.isWalkable(this.player.x + dx, this.player.y + dy, false)) {
-                    // Leave ship at current position
-                    const ship = {
-                        type: 'ship',
-                        x: this.player.x,
-                        y: this.player.y,
-                        char: 'S',
-                        color: '\x1b[33m'
-                    };
-                    this.entityManager.addEntity(ship);
-
-                    // Move player to land
-                    this.player.x += dx;
-                    this.player.y += dy;
-                    this.player.mode = 'foot';
-                    this.addMessage('You disembark onto land!');
-                    return;
-                }
-            }
-            this.addMessage('No land nearby to disembark!');
+            
+        } catch (error) {
+            console.error('Error during ship boarding/unboarding:', error);
+            this.addMessage('Ship operation failed');
         }
     }
 
     attemptGather() {
-        // Check if player is on ship
-        if (this.player.mode === 'ship') {
-            this.addMessage('Cannot gather resources while on ship');
-            return;
+        try {
+            // Validate system initialization
+            if (!this.resourceManager || !this.playerInventory) {
+                this.addMessage('Resource system not initialized');
+                return;
+            }
+            
+            // Check if player is on ship
+            if (this.player.mode === 'ship') {
+                this.addMessage('Cannot gather resources while on ship');
+                return;
+            }
+            
+            // Validate player position
+            if (typeof this.player.x !== 'number' || typeof this.player.y !== 'number') {
+                this.addMessage('Invalid player position');
+                return;
+            }
+
+            // Check fog of war visibility - player can only gather at their current position
+            // which should always be visible, but let's verify for consistency
+            if (this.fogOfWar) {
+                try {
+                    if (!this.fogOfWar.isVisible(this.player.x, this.player.y)) {
+                        this.addMessage('You cannot gather resources in areas you cannot see clearly');
+                        return;
+                    }
+                } catch (error) {
+                    console.warn('Fog of war visibility check failed during gathering:', error);
+                    // Graceful degradation - disable fog of war and allow gathering
+                    this.fogOfWar = null;
+                    this.addMessage('Fog of war disabled due to error');
+                }
+            }
+
+            // Attempt to gather at current position
+            const result = this.resourceManager.attemptGather(
+                this.player.x, 
+                this.player.y, 
+                this.playerInventory
+            );
+            
+            // Validate result
+            if (!result || typeof result.success !== 'boolean') {
+                this.addMessage('Gathering system error');
+                return;
+            }
+
+            // Track statistics
+            this.gatheringStats.totalAttempts++;
+            if (result.success) {
+                this.gatheringStats.successfulGathers++;
+                if (result.resource) {
+                    if (!this.gatheringStats.resourcesGathered[result.resource]) {
+                        this.gatheringStats.resourcesGathered[result.resource] = 0;
+                    }
+                    this.gatheringStats.resourcesGathered[result.resource] += result.quantity;
+                }
+            } else {
+                this.gatheringStats.failedGathers++;
+            }
+
+            // Use standardized cross-platform feedback messages
+            const feedbackMessage = this.resourceManager.getGatheringFeedbackMessage(result, 'terminal');
+            this.addMessage(feedbackMessage);
+            
+        } catch (error) {
+            console.error('Error during resource gathering:', error);
+            this.addMessage('Gathering system error occurred');
         }
-
-        // Attempt to gather at current position
-        const result = this.resourceManager.attemptGather(
-            this.player.x, 
-            this.player.y, 
-            this.playerInventory
-        );
-
-        this.addMessage(result.message);
     }
 
     toggleInventory() {
+        // Inventory operations should work regardless of fog of war state
+        // as they don't depend on environmental visibility
         this.showInventory = !this.showInventory;
         if (this.showInventory) {
             this.addMessage('Inventory opened');
@@ -670,8 +903,121 @@ class TerminalGame {
         }
     }
 
+    examineLocation() {
+        // Check fog of war visibility - player can only examine their current position
+        // which should always be visible, but let's verify for consistency
+        if (this.fogOfWar) {
+            try {
+                if (!this.fogOfWar.isVisible(this.player.x, this.player.y)) {
+                    this.addMessage('You cannot examine areas you cannot see clearly');
+                    return;
+                }
+            } catch (error) {
+                console.warn('Fog of war visibility check failed during examination:', error);
+                // Graceful degradation - disable fog of war and allow examination
+                this.fogOfWar = null;
+                this.addMessage('Fog of war disabled due to error');
+            }
+        }
+
+        // Examine current location
+        const result = this.resourceManager.examineLocation(this.player.x, this.player.y);
+        
+        if (!result.success) {
+            this.addMessage(result.message);
+            return;
+        }
+        
+        // Use standardized examination display
+        const formattedResults = this.resourceManager.formatExaminationResults(result, 'terminal');
+        formattedResults.forEach(line => {
+            if (line.trim()) {
+                this.addMessage(line);
+            }
+        });
+    }
+
+    showGatheringHelp() {
+        const helpInfo = this.resourceManager.getGatheringHelp('terminal');
+        
+        console.clear();
+        console.log(`\n=== ${helpInfo.title} ===\n`);
+        
+        helpInfo.sections.forEach(section => {
+            console.log(`${section.title}:`);
+            section.content.forEach(item => {
+                console.log(`  • ${item}`);
+            });
+            console.log('');
+        });
+        
+        console.log('Press any key to return to game...');
+        
+        // Wait for key press to return
+        process.stdin.once('keypress', () => {
+            this.render();
+        });
+    }
+
+    showGatheringStats() {
+        const sessionTime = Date.now() - this.gatheringStats.sessionStartTime;
+        const sessionMinutes = Math.floor(sessionTime / 60000);
+        const successRate = this.gatheringStats.totalAttempts > 0 
+            ? Math.round((this.gatheringStats.successfulGathers / this.gatheringStats.totalAttempts) * 100)
+            : 0;
+        
+        console.clear();
+        console.log('\n=== 📊 Gathering Statistics ===\n');
+        
+        console.log('Session Overview:');
+        console.log(`  Total Attempts: ${this.gatheringStats.totalAttempts}`);
+        console.log(`  Success Rate: ${successRate}%`);
+        console.log(`  Session Time: ${sessionMinutes} minutes`);
+        console.log('');
+        
+        console.log('Results:');
+        console.log(`  ✓ Successful: ${this.gatheringStats.successfulGathers}`);
+        console.log(`  ✗ Failed: ${this.gatheringStats.failedGathers}`);
+        console.log('');
+        
+        if (Object.keys(this.gatheringStats.resourcesGathered).length > 0) {
+            console.log('Resources Collected:');
+            
+            // Sort resources by quantity
+            const sortedResources = Object.entries(this.gatheringStats.resourcesGathered)
+                .sort(([,a], [,b]) => b - a);
+            
+            sortedResources.forEach(([resourceType, quantity]) => {
+                const resourceInfo = this.resourceManager.getResourceInfo(resourceType);
+                const displayName = resourceInfo ? resourceInfo.name : resourceType;
+                const char = resourceInfo ? resourceInfo.char : '?';
+                console.log(`  ${char} ${displayName}: ${quantity}`);
+            });
+            console.log('');
+        }
+        
+        console.log('Press any key to return to game...');
+        
+        // Wait for key press to return
+        process.stdin.once('keypress', () => {
+            this.render();
+        });
+    }
+
     render() {
         console.clear();
+
+        // Update fog of war before rendering
+        if (this.fogOfWar) {
+            try {
+                this.fogOfWar.updateVisibility(this.player.x, this.player.y);
+            } catch (error) {
+                console.warn('Fog of war update failed during render:', error);
+                // Graceful degradation - disable fog of war to prevent repeated errors
+                this.fogOfWar = null;
+                this.addMessage('Fog of war disabled due to error');
+            }
+        }
 
         // Update camera
         this.mapGenerator.updateCamera(this.player.x, this.player.y);
@@ -688,24 +1034,79 @@ class TerminalGame {
                 const tileData = visibleTiles.find(t => t.screenX === x && t.screenY === y);
 
                 if (tileData) {
-                    // Check if player is at this position
-                    if (tileData.worldX === this.player.x && tileData.worldY === this.player.y) {
+                    const worldX = tileData.worldX;
+                    const worldY = tileData.worldY;
+
+                    // Check if tile should be rendered based on fog of war
+                    let shouldRenderTile = true;
+                    if (this.fogOfWar) {
+                        try {
+                            shouldRenderTile = this.fogOfWar.shouldRenderTile(worldX, worldY);
+                        } catch (error) {
+                            console.warn('Fog of war tile visibility check failed:', error);
+                            // Graceful degradation - disable fog of war and render all tiles
+                            this.fogOfWar = null;
+                            shouldRenderTile = true;
+                        }
+                    }
+                    
+                    if (!shouldRenderTile) {
+                        line += ' '; // Hidden tile rendered as empty space
+                        continue;
+                    }
+
+                    // Check if player is at this position (player is always rendered)
+                    if (worldX === this.player.x && worldY === this.player.y) {
                         line += `\x1b[91m${this.player.getIcon()}\x1b[0m`;
                     } else {
                         // Check if there's an entity at this position
-                        const entity = this.entityManager.getEntityAt(tileData.worldX, tileData.worldY);
-                        if (entity) {
+                        const entity = this.entityManager.getEntityAt(worldX, worldY);
+                        let shouldRenderEntity = true;
+                        let visibilityModifier = 1.0;
+                        
+                        if (entity && this.fogOfWar) {
+                            try {
+                                shouldRenderEntity = this.fogOfWar.shouldRenderEntity(worldX, worldY, entity.type);
+                                visibilityModifier = this.fogOfWar.getVisibilityModifier(worldX, worldY);
+                            } catch (error) {
+                                console.warn('Fog of war entity visibility check failed:', error);
+                                // Graceful degradation - disable fog of war and render all entities
+                                this.fogOfWar = null;
+                                shouldRenderEntity = true;
+                                visibilityModifier = 1.0;
+                            }
+                        }
+                        
+                        if (entity && shouldRenderEntity) {
+                            // Only render entity if it's in a visible tile
                             const entityInfo = this.entityManager.entityTypes[entity.type];
-                            line += `${entityInfo.color}${entityInfo.char}\x1b[0m`;
+                            const entityColor = this.applyVisibilityModifier(entityInfo.color, visibilityModifier);
+                            
+                            line += `${entityColor}${entityInfo.char}\x1b[0m`;
                         } else {
                             // Use resource glyph system if available
                             const glyphInfo = this.mapGenerator.generateResourceGlyph(
-                                tileData.worldX, 
-                                tileData.worldY, 
+                                worldX, 
+                                worldY, 
                                 tileData.tile.biome, 
                                 this.resourceManager
                             );
-                            line += `${glyphInfo.color}${glyphInfo.char}\x1b[0m`;
+                            
+                            // Apply visibility modifier for dimming explored but not visible tiles
+                            let tileVisibilityModifier = 1.0;
+                            if (this.fogOfWar) {
+                                try {
+                                    tileVisibilityModifier = this.fogOfWar.getVisibilityModifier(worldX, worldY);
+                                } catch (error) {
+                                    console.warn('Fog of war visibility modifier failed:', error);
+                                    // Graceful degradation - disable fog of war and use full visibility
+                                    this.fogOfWar = null;
+                                    tileVisibilityModifier = 1.0;
+                                }
+                            }
+                            const tileColor = this.applyVisibilityModifier(glyphInfo.color, tileVisibilityModifier);
+                            
+                            line += `${tileColor}${glyphInfo.char}\x1b[0m`;
                         }
                     }
                 } else {
@@ -717,7 +1118,7 @@ class TerminalGame {
 
         console.log(display);
         console.log(`\nPosition: (${this.player.x}, ${this.player.y}) | Mode: ${this.player.mode}`);
-        console.log('Controls: WASD=Move, B=Board/Disembark, G=Gather, I=Inventory, Q=Quit');
+        console.log('Controls: WASD=Move, B=Board/Disembark, G=Gather, I=Inventory, X=Examine, H=Help, T=Stats, Q=Quit');
 
         // Display inventory if toggled
         if (this.showInventory) {
@@ -738,13 +1139,87 @@ class TerminalGame {
         }
     }
 
+    // Apply visibility modifier to terminal color codes for dimming
+    applyVisibilityModifier(colorCode, modifier) {
+        if (modifier >= 1.0) {
+            // Full brightness - return original color with normal intensity
+            return colorCode;
+        } else if (modifier > 0.0) {
+            // Dimmed - convert to darker/dimmed version while preserving color identity
+            // Map colors to their dimmed equivalents with better contrast
+            const dimColorMap = {
+                // Standard colors to their dim equivalents
+                '\x1b[31m': '\x1b[2m\x1b[31m',  // Red to dim red
+                '\x1b[32m': '\x1b[2m\x1b[32m',  // Green to dim green
+                '\x1b[33m': '\x1b[2m\x1b[33m',  // Yellow to dim yellow
+                '\x1b[34m': '\x1b[2m\x1b[34m',  // Blue to dim blue
+                '\x1b[35m': '\x1b[2m\x1b[35m',  // Magenta to dim magenta
+                '\x1b[36m': '\x1b[2m\x1b[36m',  // Cyan to dim cyan
+                '\x1b[37m': '\x1b[2m\x1b[37m',  // White to dim white
+                '\x1b[90m': '\x1b[2m\x1b[90m',  // Dark gray to dim dark gray
+                
+                // Bright colors to their standard equivalents (dimmed)
+                '\x1b[91m': '\x1b[2m\x1b[31m',  // Bright red to dim red
+                '\x1b[92m': '\x1b[2m\x1b[32m',  // Bright green to dim green
+                '\x1b[93m': '\x1b[2m\x1b[33m',  // Bright yellow to dim yellow
+                '\x1b[94m': '\x1b[2m\x1b[34m',  // Bright blue to dim blue
+                '\x1b[95m': '\x1b[2m\x1b[35m',  // Bright magenta to dim magenta
+                '\x1b[96m': '\x1b[2m\x1b[36m',  // Bright cyan to dim cyan
+                '\x1b[97m': '\x1b[2m\x1b[37m'   // Bright white to dim white
+            };
+            
+            // Return dimmed version or fallback to dim white
+            return dimColorMap[colorCode] || '\x1b[2m\x1b[37m';
+        } else {
+            // Hidden - should not be rendered, but return reset just in case
+            return '\x1b[0m';
+        }
+    }
+
     quit() {
-        console.clear();
-        console.log('Thanks for playing Pirate Sea!');
-        this.rl.close();
-        process.exit(0);
+        try {
+            console.clear();
+            console.log('Saving game and cleaning up...');
+            
+            // Cleanup resource system if available
+            if (this.resourceManager) {
+                this.resourceManager.forceCleanup();
+                console.log('Resource system cleaned up');
+            }
+            
+            // Display final statistics
+            if (this.gatheringStats.totalAttempts > 0) {
+                const sessionTime = Date.now() - this.gatheringStats.sessionStartTime;
+                const sessionMinutes = Math.floor(sessionTime / 60000);
+                const successRate = Math.round((this.gatheringStats.successfulGathers / this.gatheringStats.totalAttempts) * 100);
+                
+                console.log('\n=== Final Session Statistics ===');
+                console.log(`Session Time: ${sessionMinutes} minutes`);
+                console.log(`Gathering Attempts: ${this.gatheringStats.totalAttempts}`);
+                console.log(`Success Rate: ${successRate}%`);
+                
+                if (Object.keys(this.gatheringStats.resourcesGathered).length > 0) {
+                    console.log('Resources Collected:');
+                    for (const [resource, quantity] of Object.entries(this.gatheringStats.resourcesGathered)) {
+                        console.log(`  ${resource}: ${quantity}`);
+                    }
+                }
+            }
+            
+            console.log('\nThanks for playing Pirate Sea!');
+            
+        } catch (error) {
+            console.error('Error during cleanup:', error);
+            console.log('Thanks for playing Pirate Sea!');
+        } finally {
+            this.rl.close();
+            process.exit(0);
+        }
     }
 }
+
+// Export the TerminalGame class
+module.exports = TerminalGame;
 
 // Start the game
 if (require.main === module) {

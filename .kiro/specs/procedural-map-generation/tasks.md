@@ -1,13 +1,13 @@
 # Implementation Plan
 
-- [ ] 1. Add ROT.js dependency validation and error handling
+- [x] 1. Add ROT.js dependency validation and error handling
   - Implement ROT.js availability check in generateMap() method before noise generator initialization
   - Create fallback terrain generation using Math.random() when ROT.js is unavailable
   - Add try-catch blocks around all ROT.Noise.Simplex() calls with graceful degradation
   - Implement error logging for ROT.js initialization failures
   - _Requirements: 1.2, 9.5_
 
-- [ ] 2. Optimize biome determination thresholds for accurate 80% water coverage
+- [x] 2. Optimize biome determination thresholds for accurate 80% water coverage
   - Analyze current biome distribution by sampling large world areas (1000x1000 tiles)
   - Adjust elevation thresholds in determineBiome() method to achieve target 80% ocean coverage
   - Fine-tune moisture and temperature ranges for more realistic biome transitions
@@ -56,7 +56,7 @@
   - Create ocean current simulation for more dynamic water body characteristics
   - _Requirements: 6.4, 8.4_
 
-- [ ] 9. Implement world seed system for reproducible generation
+- [x] 9. Implement world seed system for reproducible generation
   - Add optional seed parameter to MapGenerator constructor
   - Implement deterministic noise generation using ROT.js seeded noise
   - Create world sharing functionality through seed codes
@@ -77,7 +77,7 @@
   - Create biome rarity adjustment parameters for custom world generation
   - _Requirements: 9.1, 9.2, 9.5_
 
-- [ ] 12. Enhance fog of war integration and visibility management
+- [x] 12. Enhance fog of war integration and visibility management
   - Optimize setVisibility() and clearVisibility() methods for better performance
   - Add visibility state persistence for tiles outside current viewport
   - Implement smart visibility updates to reduce unnecessary fog of war calculations

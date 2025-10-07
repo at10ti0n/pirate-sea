@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory UI Test</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="game-container">
+        <h1>Inventory UI Test</h1>
+        
+        <div class="info-area">
+            <div class="inventory" id="inventory-display" style="display: block;">
+                <h3>Inventory</h3>
+                <div id="inventory-capacity" class="inventory-capacity">
+                    <div class="capacity-bar">
+                        <div class="capacity-fill" style="width: 45%; background-color: #27ae60;"></div>
+                    </div>
+                    <div class="capacity-text">45/100 (45%)</div>
+                </div>
+                <div id="inventory-content">
+                    <div class="inventory-grid">
+                        <div class="inventory-item" title="Sturdy building and tool material">
+                            <div class="item-icon">🪨</div>
+                            <div class="item-info">
+                                <div class="item-name">Stone</div>
+                                <div class="item-quantity">8</div>
+                            </div>
+                        </div>
+                        <div class="inventory-item" title="Primary building and fuel material">
+                            <div class="item-icon">🌳</div>
+                            <div class="item-info">
+                                <div class="item-name">Wood</div>
+                                <div class="item-quantity">15</div>
+                            </div>
+                        </div>
+                        <div class="inventory-item" title="Food and preservation material">
+                            <div class="item-icon">🫐</div>
+                            <div class="item-info">
+                                <div class="item-name">Berries</div>
+                                <div class="item-quantity">23</div>
+                            </div>
+                        </div>
+                        <div class="inventory-item" title="Metal crafting material">
+                            <div class="item-icon">⛏️</div>
+                            <div class="item-info">
+                                <div class="item-name">Ore</div>
+                                <div class="item-quantity">3</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="inventory" id="empty-inventory-display" style="display: block;">
+                <h3>Empty Inventory</h3>
+                <div id="empty-inventory-capacity" class="inventory-capacity">
+                    <div class="capacity-bar">
+                        <div class="capacity-fill" style="width: 0%; background-color: #27ae60;"></div>
+                    </div>
+                    <div class="capacity-text">0/100 (0%)</div>
+                </div>
+                <div id="empty-inventory-content">
+                    <div class="inventory-empty">Inventory is empty</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

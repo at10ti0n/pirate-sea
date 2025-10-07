@@ -62,7 +62,7 @@ Convert the biome resource gathering design into a series of implementation step
   - Test depleted state visualization across all biome types
   - _Requirements: 6.12_
 
-- [ ] 8. Create inventory UI components
+- [x] 8. Create inventory UI components
   - Design and implement inventory display for web version
   - Create terminal-based inventory display
   - Add inventory toggle key binding ('I' key)
@@ -70,7 +70,7 @@ Convert the biome resource gathering design into a series of implementation step
   - Create inventory capacity indicator
   - _Requirements: 4.2, 4.5, 6.1, 6.2, 6.4_
 
-- [ ] 9. Add resource information and examination system
+- [x] 9. Add resource information and examination system
   - Implement biome resource preview when examining terrain
   - Create resource description and information display
   - Add gathering success rate hints based on location state
@@ -78,7 +78,7 @@ Convert the biome resource gathering design into a series of implementation step
   - Create help system for resource gathering mechanics
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
 
-- [ ] 10. Enhance UI integration and feedback
+- [x] 10. Enhance UI integration and feedback
   - Add gathering attempt feedback messages
   - Create resource gathering animation/effects (web version)
   - Implement inventory full warnings
@@ -86,7 +86,7 @@ Convert the biome resource gathering design into a series of implementation step
   - Create gathering tutorial/help text
   - _Requirements: 5.1, 5.2, 5.3, 6.5, 7.5_
 
-- [ ] 11. Implement cross-platform consistency
+- [x] 11. Implement cross-platform consistency
   - Ensure identical resource types and quantities across platforms
   - Standardize gathering mechanics between web and terminal
   - Create platform-specific resource display symbols
@@ -94,7 +94,7 @@ Convert the biome resource gathering design into a series of implementation step
   - Validate UI consistency and usability
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
 
-- [ ] 12. Add system integration and polish
+- [x] 12. Add system integration and polish
   - Integrate resource system with existing game state management
   - Ensure compatibility with ship boarding/unboarding
   - Add resource system to game save/load functionality
@@ -102,7 +102,7 @@ Convert the biome resource gathering design into a series of implementation step
   - Implement error handling and edge case management
   - _Requirements: 7.1, 7.2, 7.4, 7.5_
 
-- [ ] 13. Create comprehensive testing suite
+- [x] 13. Create comprehensive testing suite
   - Write unit tests for all ResourceManager methods
   - Create integration tests for gathering workflow
   - Test inventory management under various conditions
@@ -110,7 +110,7 @@ Convert the biome resource gathering design into a series of implementation step
   - Test performance with large inventories and many locations
   - _Requirements: All requirements validation_
 
-- [ ] 14. Add documentation and examples
+- [x] 14. Add documentation and examples
   - Create player guide for resource gathering mechanics
   - Document resource types and their uses
   - Add developer documentation for extending the system

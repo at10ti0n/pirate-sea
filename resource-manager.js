@@ -477,7 +477,7 @@ class ResourceManager {
             const glyphInfo = this.mapGenerator.generateResourceGlyph(x, y, tile.biome, this);
             
             // If tile shows a specific resource glyph, bias towards that resource
-            if (glyphInfo.resourceType && glyphInfo.resourceType !== 'biome_fallback') {
+            if (glyphInfo && glyphInfo.resourceType && glyphInfo.resourceType !== 'biome_fallback') {
                 // Find the resource in biome config
                 const biasedResource = biomeConfig.resources.find(r => r.type === glyphInfo.resourceType);
                 if (biasedResource) {
@@ -619,6 +619,540 @@ class ResourceManager {
     forceCleanup() {
         this.cleanupOldLocationStates();
         this.lastCleanup = Date.now();
+    }
+
+    // Serialization for save/load functionality
+    serializeLocationStates() {
+        try {
+            const data = {
+                version: '1.0',
+                timestamp: Date.now(),
+                maxLocationStates: this.maxLocationStates,
+                cleanupInterval: this.cleanupInterval,
+                locationExpiryTime: this.locationExpiryTime,
+                lastCleanup: this.lastCleanup,
+                locationStates: {}
+            };
+
+            // Convert Map to plain object for serialization
+            for (const [key, state] of this.locationStates) {
+                data.locationStates[key] = {
+                    x: state.x,
+                    y: state.y,
+                    lastGathered: state.lastGathered,
+                    depletionLevel: state.depletionLevel,
+                    totalGathers: state.totalGathers,
+                    regenerationTimer: state.regenerationTimer
+                };
+            }
+
+            return JSON.stringify(data);
+        } catch (error) {
+            console.error('Failed to serialize resource location states:', error);
+            return null;
+        }
+    }
+
+    deserializeLocationStates(jsonString) {
+        try {
+            if (!jsonString) {
+                return { success: true, message: 'No resource data to restore' };
+            }
+
+            const data = JSON.parse(jsonString);
+            
+            // Validate version compatibility
+            if (!data.version || data.version !== '1.0') {
+                return { success: false, message: 'Resource data version incompatible' };
+            }
+
+            // Restore configuration
+            this.maxLocationStates = data.maxLocationStates || 1000;
+            this.cleanupInterval = data.cleanupInterval || 600000;
+            this.locationExpiryTime = data.locationExpiryTime || 3600000;
+            this.lastCleanup = data.lastCleanup || Date.now();
+
+            // Clear existing location states
+            this.locationStates.clear();
+
+            // Restore location states
+            if (data.locationStates) {
+                for (const [key, stateData] of Object.entries(data.locationStates)) {
+                    this.locationStates.set(key, {
+                        x: stateData.x || 0,
+                        y: stateData.y || 0,
+                        lastGathered: stateData.lastGathered || 0,
+                        depletionLevel: stateData.depletionLevel || 0.0,
+                        totalGathers: stateData.totalGathers || 0,
+                        regenerationTimer: stateData.regenerationTimer || 0
+                    });
+                }
+            }
+
+            console.log(`ResourceManager: Restored ${this.locationStates.size} location states`);
+            return { success: true, message: `Restored ${this.locationStates.size} resource locations` };
+
+        } catch (error) {
+            console.error('Failed to deserialize resource location states:', error);
+            return { success: false, message: `Failed to restore resource data: ${error.message}` };
+        }
+    }
+
+    // Performance optimization methods
+    optimizeLocationStates() {
+        const now = Date.now();
+        let optimized = 0;
+
+        // Remove fully regenerated locations that haven't been accessed recently
+        for (const [key, state] of this.locationStates) {
+            const timeSinceLastGather = now - state.lastGathered;
+            
+            // If location is fully regenerated and hasn't been accessed in a while, remove it
+            if (state.depletionLevel <= 0.1 && timeSinceLastGather > this.locationExpiryTime / 2) {
+                this.locationStates.delete(key);
+                optimized++;
+            }
+        }
+
+        if (optimized > 0) {
+            console.log(`ResourceManager: Optimized ${optimized} location states`);
+        }
+
+        return optimized;
+    }
+
+    // Get performance metrics
+    getPerformanceMetrics() {
+        const now = Date.now();
+        let activeLocations = 0;
+        let depletedLocations = 0;
+        let recentlyAccessed = 0;
+
+        for (const [, state] of this.locationStates) {
+            if (state.depletionLevel > 0.1) {
+                activeLocations++;
+            }
+            if (state.depletionLevel >= 0.8) {
+                depletedLocations++;
+            }
+            if (now - state.lastGathered < 300000) { // 5 minutes
+                recentlyAccessed++;
+            }
+        }
+
+        return {
+            totalLocationStates: this.locationStates.size,
+            activeLocations,
+            depletedLocations,
+            recentlyAccessed,
+            memoryUsageEstimate: this.locationStates.size * 100, // Rough estimate in bytes
+            lastCleanup: this.lastCleanup,
+            nextCleanupIn: Math.max(0, this.cleanupInterval - (now - this.lastCleanup))
+        };
+    }
+
+    // Resource examination and information system
+    examineLocation(x, y) {
+        // Get the biome at this location
+        const tile = this.mapGenerator.getBiomeAt(x, y);
+        if (!tile) {
+            return { success: false, message: 'Invalid location' };
+        }
+
+        // Get biome configuration
+        const biomeConfig = this.getBiomeResources(tile.biome);
+        if (!biomeConfig) {
+            return { 
+                success: true, 
+                biome: tile.biome,
+                biomeName: this.getBiomeDisplayName(tile.biome),
+                message: `This ${this.getBiomeDisplayName(tile.biome)} contains no gatherable resources.`,
+                resources: [],
+                gatheringInfo: null
+            };
+        }
+
+        // Get location state for depletion info
+        const locationState = this.getLocationState(x, y);
+        const currentDepletion = this.calculateRegeneration(locationState, biomeConfig);
+        locationState.depletionLevel = currentDepletion;
+
+        // Calculate current success rate
+        const successRate = this.calculateGatherSuccess(biomeConfig, locationState);
+
+        // Get resource information
+        const resourceInfo = biomeConfig.resources.map(resource => {
+            const resourceDef = this.getResourceInfo(resource.type);
+            return {
+                type: resource.type,
+                name: resourceDef ? resourceDef.name : resource.type,
+                description: resourceDef ? resourceDef.description : 'Unknown resource',
+                rarity: resourceDef ? resourceDef.rarity : 'common',
+                icon: resourceDef ? resourceDef.icon : '?',
+                weight: resource.weight,
+                baseQuantity: resource.baseQuantity,
+                probability: Math.round((resource.weight / biomeConfig.resources.reduce((sum, r) => sum + r.weight, 0)) * 100)
+            };
+        });
+
+        // Determine gathering difficulty and hints
+        let difficultyHint = '';
+        let depletionHint = '';
+        
+        if (currentDepletion >= 0.8) {
+            difficultyHint = 'This area appears completely picked clean.';
+            depletionHint = 'Resources will regenerate over time.';
+        } else if (currentDepletion >= 0.6) {
+            difficultyHint = 'This area has been heavily gathered from recently.';
+            depletionHint = 'Success rate is significantly reduced.';
+        } else if (currentDepletion >= 0.4) {
+            difficultyHint = 'This area shows signs of recent gathering activity.';
+            depletionHint = 'Success rate is moderately reduced.';
+        } else if (currentDepletion >= 0.2) {
+            difficultyHint = 'This area has been lightly gathered from.';
+            depletionHint = 'Success rate is slightly reduced.';
+        } else {
+            difficultyHint = 'This area appears untouched and resource-rich.';
+            depletionHint = 'Success rate is at maximum.';
+        }
+
+        // Time-based regeneration info
+        let regenerationHint = '';
+        if (currentDepletion > 0) {
+            const timeSinceLastGather = Date.now() - locationState.lastGathered;
+            const regenProgress = Math.min(1, timeSinceLastGather / biomeConfig.regenerationTime);
+            const timeRemaining = biomeConfig.regenerationTime - timeSinceLastGather;
+            
+            if (regenProgress >= 1) {
+                regenerationHint = 'Resources have fully regenerated.';
+            } else if (timeRemaining > 0) {
+                const minutesRemaining = Math.ceil(timeRemaining / 60000);
+                regenerationHint = `Resources will fully regenerate in ~${minutesRemaining} minutes.`;
+            }
+        }
+
+        return {
+            success: true,
+            biome: tile.biome,
+            biomeName: this.getBiomeDisplayName(tile.biome),
+            message: `You examine the ${this.getBiomeDisplayName(tile.biome)} carefully.`,
+            resources: resourceInfo,
+            gatheringInfo: {
+                successRate: Math.round(successRate * 100),
+                depletionLevel: Math.round(currentDepletion * 100),
+                difficultyHint: difficultyHint,
+                depletionHint: depletionHint,
+                regenerationHint: regenerationHint,
+                baseSuccessRate: Math.round(biomeConfig.baseSuccessRate * 100),
+                regenerationTime: Math.round(biomeConfig.regenerationTime / 60000) // in minutes
+            }
+        };
+    }
+
+    // Format examination results for consistent display across platforms
+    formatExaminationResults(result, platform = 'web') {
+        if (!result.success) {
+            return [result.message];
+        }
+
+        const lines = [];
+        lines.push(result.message);
+
+        if (result.resources.length === 0) {
+            return lines;
+        }
+
+        // Display available resources
+        lines.push('');
+        lines.push('Available resources:');
+        
+        result.resources.forEach(resource => {
+            const rarityInfo = this.getResourceRarityInfo(resource.rarity);
+            const symbol = this.getResourceDisplaySymbol(resource.type, platform);
+            
+            if (platform === 'terminal') {
+                lines.push(`  ${symbol} ${resource.name} (${resource.probability}%) - ${rarityInfo.name}`);
+            } else {
+                lines.push(`  ${symbol} ${resource.name} (${resource.probability}%) - ${rarityInfo.name}`);
+            }
+        });
+
+        // Display gathering information
+        if (result.gatheringInfo) {
+            const info = result.gatheringInfo;
+            lines.push('');
+            lines.push(`Success rate: ${info.successRate}% (base: ${info.baseSuccessRate}%)`);
+            lines.push(`Depletion: ${info.depletionLevel}% | ${info.difficultyHint}`);
+            
+            if (info.regenerationHint) {
+                lines.push(info.regenerationHint);
+            }
+        }
+
+        return lines;
+    }
+
+    // Get display name for biome (consistent across platforms)
+    getBiomeDisplayName(biome) {
+        const biomeNames = {
+            forest: 'Forest',
+            desert: 'Desert',
+            mountain: 'Mountain',
+            beach: 'Beach',
+            jungle: 'Jungle',
+            savanna: 'Savanna',
+            taiga: 'Taiga',
+            tropical: 'Tropical Forest',
+            swamp: 'Swamp',
+            ocean: 'Ocean'
+        };
+        return biomeNames[biome] || biome;
+    }
+
+    // Get platform-appropriate resource display symbol
+    getResourceDisplaySymbol(resourceType, platform = 'web', depleted = false) {
+        const resourceInfo = this.getResourceInfo(resourceType);
+        if (!resourceInfo) return '?';
+        
+        if (platform === 'terminal') {
+            return depleted ? 
+                (this.resourceGlyphs[resourceType]?.depletedTerminal || resourceInfo.char) : 
+                resourceInfo.char;
+        } else {
+            return depleted ? 
+                (this.resourceGlyphs[resourceType]?.depletedWeb || resourceInfo.icon) : 
+                resourceInfo.icon;
+        }
+    }
+
+    // Standardized gathering feedback messages (consistent across platforms)
+    getGatheringFeedbackMessage(result, platform = 'web') {
+        if (!result.success) {
+            // Standardize failure messages
+            if (result.message.includes('Inventory full')) {
+                return platform === 'terminal' ? 
+                    '⚠ Inventory full! Cannot gather more resources.' :
+                    'Inventory full! Cannot gather more resources.';
+            } else if (result.message.includes('picked clean')) {
+                return platform === 'terminal' ? 
+                    '✗ This area has been picked clean. Try again later.' :
+                    'This area has been picked clean. Try again later.';
+            } else if (result.message.includes('Cannot gather resources while on ship')) {
+                return platform === 'terminal' ? 
+                    '⚠ Cannot gather resources while on ship' :
+                    'Cannot gather resources while on ship';
+            } else if (result.message.includes('Nothing to gather here')) {
+                return platform === 'terminal' ? 
+                    '✗ Nothing to gather here' :
+                    'Nothing to gather here';
+            } else {
+                return platform === 'terminal' ? 
+                    '✗ You search around but find nothing useful.' :
+                    'You search around but find nothing useful.';
+            }
+        } else {
+            // Standardize success messages
+            const resourceInfo = this.getResourceInfo(result.resource);
+            const resourceName = resourceInfo ? resourceInfo.name : result.resource;
+            const symbol = this.getResourceDisplaySymbol(result.resource, platform);
+            
+            return platform === 'terminal' ? 
+                `✓ Gathered ${result.quantity} ${resourceName}! ${symbol}` :
+                `Gathered ${result.quantity} ${resourceName}!`;
+        }
+    }
+
+    // Get resource rarity information
+    getResourceRarityInfo(rarity) {
+        const rarityInfo = {
+            common: {
+                name: 'Common',
+                color: '#95a5a6',
+                description: 'Easily found in most locations'
+            },
+            uncommon: {
+                name: 'Uncommon',
+                color: '#3498db',
+                description: 'Somewhat rare, requires specific conditions'
+            },
+            rare: {
+                name: 'Rare',
+                color: '#9b59b6',
+                description: 'Difficult to find, valuable material'
+            },
+            epic: {
+                name: 'Epic',
+                color: '#e67e22',
+                description: 'Very rare, highly sought after'
+            },
+            legendary: {
+                name: 'Legendary',
+                color: '#f1c40f',
+                description: 'Extremely rare, legendary material'
+            }
+        };
+        return rarityInfo[rarity] || rarityInfo.common;
+    }
+
+    // Get help information for resource gathering (consistent across platforms)
+    getGatheringHelp(platform = 'web') {
+        const controls = platform === 'terminal' ? {
+            gather: 'G',
+            inventory: 'I',
+            examine: 'X',
+            help: 'H',
+            stats: 'T'
+        } : {
+            gather: 'G key or Gather button',
+            inventory: 'I key or Inventory button',
+            examine: 'X key or Examine button',
+            help: 'H key or Help button',
+            stats: 'T key or Stats button'
+        };
+
+        return {
+            title: 'Resource Gathering Guide',
+            sections: [
+                {
+                    title: 'Getting Started',
+                    content: [
+                        `Press ${controls.gather} to gather resources from your current location`,
+                        'Move to any land biome (avoid ocean tiles)',
+                        'Look for resource glyphs mixed in with terrain',
+                        'Check your inventory with I to see collected resources',
+                        'Cannot gather while aboard your ship - disembark first'
+                    ]
+                },
+                {
+                    title: 'Controls',
+                    content: [
+                        `${controls.gather} - Gather resources from current location`,
+                        `${controls.inventory} - View and manage your inventory`,
+                        `${controls.examine} - Examine location for resource info`,
+                        `${controls.help} - Show this help guide`,
+                        `${controls.stats} - View detailed gathering statistics`
+                    ]
+                },
+                {
+                    title: 'Biome Resources & Success Rates',
+                    content: [
+                        'Forest (70%): Wood 🌳, Berries 🫐 - High yield, fast regeneration',
+                        'Desert (60%): Stone 🪨, Sand 🏖️ - Moderate yield, medium regeneration',
+                        'Mountain (65%): Stone 🪨, Ore ⛏️ - Good for rare materials',
+                        'Beach (65%): Driftwood 🌳, Sand 🏖️ - Coastal resources',
+                        'Jungle (70%): Dense Wood 🌳, Exotic Berries 🫐 - High productivity',
+                        'Savanna (60%): Hay 🌾, Scattered Wood 🌳 - Grassland materials',
+                        'Taiga (70%): Coniferous Wood 🌳, Cold Berries 🫐 - Northern timber',
+                        'Tropical (75%): Bamboo 🌳, Tropical Fruits 🫐 - Most productive',
+                        'Swamp (55%): Reeds 🌿, Bog Berries 🫐 - Unique materials, lower rates'
+                    ]
+                },
+                {
+                    title: 'Resource Types & Uses',
+                    content: [
+                        'Wood: Essential building material, fuel source (Common)',
+                        'Stone: Construction material, tool crafting (Common)',
+                        'Sand: Glass making, construction filler (Common)',
+                        'Berries: Food source, crafting ingredient (Common)',
+                        'Hay: Animal feed, thatching material (Common)',
+                        'Ore: Valuable metal crafting material (Uncommon)',
+                        'Reeds: Rope making, weaving material (Uncommon)'
+                    ]
+                },
+                {
+                    title: 'Resource Depletion & Regeneration',
+                    content: [
+                        'Repeated gathering from same location reduces success rates',
+                        'Depleted areas show dimmed resource glyphs',
+                        'Regeneration times: 5-15 minutes depending on biome',
+                        'Forest/Jungle: 5-8 minutes (fast regeneration)',
+                        'Desert/Beach: 8-12 minutes (medium regeneration)',
+                        'Mountain/Swamp: 12-18 minutes (slow regeneration)',
+                        'Rotate between multiple locations for best efficiency'
+                    ]
+                },
+                {
+                    title: 'Advanced Strategies',
+                    content: [
+                        'Target resource-specific glyphs for better success rates',
+                        'Examine locations first to preview available resources',
+                        'Establish gathering circuits between 4-5 different areas',
+                        'Prioritize rare materials (Ore, Reeds) when found',
+                        'Keep inventory space free for unexpected rare finds',
+                        'Fresh locations have higher success rates than depleted ones'
+                    ]
+                },
+                {
+                    title: 'Inventory Management',
+                    content: [
+                        'Resources automatically stack (up to 99 per type)',
+                        'Total inventory capacity: 500 items',
+                        'Inventory full prevents further gathering',
+                        'Resources persist between game sessions',
+                        'Keep 10-20 of essential resources (Wood, Stone, Berries)',
+                        'Stockpile rare materials for future use'
+                    ]
+                },
+                {
+                    title: 'Troubleshooting',
+                    content: [
+                        '"Nothing to gather here" - On ocean or depleted land',
+                        '"Cannot gather while on ship" - Disembark first',
+                        '"Inventory full" - Clear space or use resources',
+                        'Low success rate - Area may be depleted, try elsewhere',
+                        'No resource glyphs - Move to different biome area',
+                        'Dimmed glyphs - Location is depleted, wait for regeneration'
+                    ]
+                }
+            ]
+        };
+    }
+
+    // Get detailed resource information
+    getDetailedResourceInfo(resourceType) {
+        const resourceDef = this.getResourceInfo(resourceType);
+        if (!resourceDef) {
+            return null;
+        }
+
+        const rarityInfo = this.getResourceRarityInfo(resourceDef.rarity);
+        
+        // Find biomes that contain this resource
+        const biomesWithResource = [];
+        for (const [biomeName, biomeConfig] of Object.entries(this.biomeResources)) {
+            const hasResource = biomeConfig.resources.some(r => r.type === resourceType);
+            if (hasResource) {
+                const resourceConfig = biomeConfig.resources.find(r => r.type === resourceType);
+                biomesWithResource.push({
+                    biome: biomeName,
+                    biomeName: this.getBiomeDisplayName(biomeName),
+                    probability: Math.round((resourceConfig.weight / biomeConfig.resources.reduce((sum, r) => sum + r.weight, 0)) * 100),
+                    baseSuccessRate: Math.round(biomeConfig.baseSuccessRate * 100),
+                    quantity: resourceConfig.baseQuantity
+                });
+            }
+        }
+
+        return {
+            ...resourceDef,
+            rarityInfo: rarityInfo,
+            foundIn: biomesWithResource,
+            uses: this.getResourceUses(resourceType)
+        };
+    }
+
+    // Get potential uses for a resource (placeholder for future crafting system)
+    getResourceUses(resourceType) {
+        const uses = {
+            stone: ['Building construction', 'Tool crafting', 'Weapon making'],
+            sand: ['Glass production', 'Construction material', 'Filtration'],
+            wood: ['Building construction', 'Fuel', 'Tool handles', 'Ship repairs'],
+            hay: ['Animal feed', 'Thatching', 'Bedding', 'Insulation'],
+            ore: ['Metal tools', 'Weapons', 'Advanced construction', 'Trading'],
+            berries: ['Food', 'Medicine', 'Dyes', 'Preservation'],
+            reeds: ['Rope making', 'Basket weaving', 'Paper', 'Thatching']
+        };
+        return uses[resourceType] || ['Unknown uses'];
     }
 }
 
