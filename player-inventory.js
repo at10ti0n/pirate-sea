@@ -76,9 +76,13 @@ class PlayerInventory {
         return resource ? resource.quantity : 0;
     }
 
-    // Alias for compatibility with economy system
+    // Aliases for compatibility with economy system
     getQuantity(resourceType) {
         return this.getResourceCount(resourceType);
+    }
+
+    getCurrentLoad() {
+        return this.getTotalItems();
     }
 
     getAllResources() {
