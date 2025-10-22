@@ -59,6 +59,15 @@ class EconomyManager {
             savanna: ['hay', 'wood'],
             swamp: ['reeds', 'berries']
         };
+
+        // Ship repair configuration
+        this.REPAIR_COST_PER_HP = 2; // Base cost in gold per hull point
+        this.REPAIR_TIER_MULTIPLIERS = {
+            small: 1.5,   // 3g per HP
+            medium: 1.2,  // 2.4g per HP
+            large: 1.0,   // 2g per HP
+            capital: 0.8  // 1.6g per HP
+        };
     }
 
     /**
@@ -433,6 +442,116 @@ class EconomyManager {
                 this.tickGoldRegeneration(port, deltaMinutes);
             }
         });
+    }
+
+    /**
+     * Calculate repair cost for a ship at a port
+     * @param {Object} ship - Ship entity with durability
+     * @param {Object} port - Port entity with economy
+     * @returns {number} Total repair cost in gold
+     */
+    calculateRepairCost(ship, port) {
+        if (!ship.durability || !port.economy) return 0;
+
+        const hpToRepair = ship.durability.max - ship.durability.current;
+        if (hpToRepair <= 0) return 0;
+
+        const tierMultiplier = this.REPAIR_TIER_MULTIPLIERS[port.economy.tier] || 1.0;
+        const totalCost = Math.ceil(hpToRepair * this.REPAIR_COST_PER_HP * tierMultiplier);
+
+        return totalCost;
+    }
+
+    /**
+     * Execute ship repair at a port
+     * @param {Object} player - Player with gold
+     * @param {Object} ship - Ship entity to repair
+     * @param {Object} port - Port entity
+     * @param {number} hpToRepair - Amount of HP to repair (optional, defaults to full repair)
+     * @returns {Object} Result with success flag and details
+     */
+    executeRepairTransaction(player, ship, port, hpToRepair = null) {
+        if (!ship || !ship.durability) {
+            return {
+                success: false,
+                error: 'Invalid ship'
+            };
+        }
+
+        if (!port || !port.economy) {
+            return {
+                success: false,
+                error: 'You must be at a port to repair'
+            };
+        }
+
+        const maxRepair = ship.durability.max - ship.durability.current;
+        if (maxRepair <= 0) {
+            return {
+                success: false,
+                error: 'Ship is already at full health'
+            };
+        }
+
+        // Determine amount to repair
+        const actualHpToRepair = hpToRepair ? Math.min(hpToRepair, maxRepair) : maxRepair;
+
+        // Calculate cost for the repair amount
+        const tierMultiplier = this.REPAIR_TIER_MULTIPLIERS[port.economy.tier] || 1.0;
+        const totalCost = Math.ceil(actualHpToRepair * this.REPAIR_COST_PER_HP * tierMultiplier);
+
+        // Check if player has enough gold
+        if (player.gold < totalCost) {
+            return {
+                success: false,
+                error: 'Not enough gold!',
+                cost: totalCost,
+                available: player.gold,
+                hpRepaired: 0
+            };
+        }
+
+        // Execute repair
+        player.gold -= totalCost;
+        ship.durability.current = Math.min(
+            ship.durability.max,
+            ship.durability.current + actualHpToRepair
+        );
+
+        return {
+            success: true,
+            cost: totalCost,
+            hpRepaired: actualHpToRepair,
+            newHp: ship.durability.current,
+            maxHp: ship.durability.max
+        };
+    }
+
+    /**
+     * Get repair information for a ship at a port
+     * @param {Object} ship - Ship entity with durability
+     * @param {Object} port - Port entity with economy
+     * @returns {Object} Repair information
+     */
+    getRepairInfo(ship, port) {
+        if (!ship || !ship.durability) {
+            return null;
+        }
+
+        const hpMissing = ship.durability.max - ship.durability.current;
+        const tierMultiplier = port && port.economy ?
+            (this.REPAIR_TIER_MULTIPLIERS[port.economy.tier] || 1.0) : 1.0;
+        const costPerHp = this.REPAIR_COST_PER_HP * tierMultiplier;
+        const totalCost = Math.ceil(hpMissing * costPerHp);
+
+        return {
+            currentHp: ship.durability.current,
+            maxHp: ship.durability.max,
+            hpMissing: hpMissing,
+            costPerHp: costPerHp,
+            totalCost: totalCost,
+            canRepair: hpMissing > 0
+        };
     }
 }
 

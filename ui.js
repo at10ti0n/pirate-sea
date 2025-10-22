@@ -349,17 +349,27 @@ class UIManager {
         const entities = this.game.entityManager.getAllEntities();
         const cameraX = this.game.mapGenerator.cameraX;
         const cameraY = this.game.mapGenerator.cameraY;
-        
+
         for (const entity of entities) {
             if (this.game.fogOfWar.shouldRenderEntity(entity.x, entity.y)) {
                 // Convert world coordinates to screen coordinates
                 const screenX = entity.x - cameraX;
                 const screenY = entity.y - cameraY;
-                
+
                 // Only render if entity is on screen
                 if (screenX >= 0 && screenX < this.game.mapGenerator.displayWidth &&
                     screenY >= 0 && screenY < this.game.mapGenerator.displayHeight) {
-                    this.display.draw(screenX, screenY, entity.char, entity.color);
+
+                    // Use dynamic icon/color for ships based on durability
+                    let char = entity.char;
+                    let color = entity.color;
+
+                    if (entity.type === 'ship' && entity.durability) {
+                        char = this.game.entityManager.getShipIcon(entity);
+                        color = this.game.entityManager.getShipColor(entity);
+                    }
+
+                    this.display.draw(screenX, screenY, char, color);
                 }
             }
         }

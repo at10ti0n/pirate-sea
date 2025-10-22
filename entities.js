@@ -42,6 +42,52 @@ class EntityManager {
     isPositionOccupied(x, y) {
         return this.entities.has(`${x},${y}`);
     }
+
+    // Create durability data for a ship
+    createShipDurability(maxHull = 100) {
+        return {
+            current: maxHull,
+            max: maxHull,
+            lastDamage: null
+        };
+    }
+
+    // Get ship condition based on durability
+    getShipCondition(ship) {
+        if (!ship.durability) return 'unknown';
+        const percent = ship.durability.current / ship.durability.max;
+        if (percent >= 0.9) return 'excellent';
+        if (percent >= 0.6) return 'good';
+        if (percent >= 0.3) return 'damaged';
+        if (percent > 0) return 'critical';
+        return 'destroyed';
+    }
+
+    // Get ship icon based on condition
+    getShipIcon(ship) {
+        const condition = this.getShipCondition(ship);
+        const icons = {
+            excellent: 'S',
+            good: 'S',
+            damaged: 's',
+            critical: 's',
+            destroyed: 'x'
+        };
+        return icons[condition] || 'S';
+    }
+
+    // Get ship color based on condition
+    getShipColor(ship) {
+        const condition = this.getShipCondition(ship);
+        const colors = {
+            excellent: '#8b4513',
+            good: '#8b4513',
+            damaged: '#d4a574',
+            critical: '#ff6b6b',
+            destroyed: '#666666'
+        };
+        return colors[condition] || '#8b4513';
+    }
     
     spawnEntities(playerX = 0, playerY = 0) {
         console.log('Spawning entities around player...');
@@ -82,7 +128,8 @@ class EntityManager {
                     char: 'S',
                     color: '#8b4513',
                     isStartingShip: true,
-                    playerSpawn: true
+                    playerSpawn: true,
+                    durability: this.createShipDurability(100)
                 };
                 
                 this.addEntity(startingShip);
@@ -112,7 +159,8 @@ class EntityManager {
                     char: 'S',
                     color: '#8b4513',
                     isStartingShip: true,
-                    playerSpawn: true
+                    playerSpawn: true,
+                    durability: this.createShipDurability(100)
                 };
                 
                 this.addEntity(startingShip);
@@ -192,7 +240,8 @@ class EntityManager {
                 x: tile.x,
                 y: tile.y,
                 char: 'S',
-                color: '#8b4513'
+                color: '#8b4513',
+                durability: this.createShipDurability(100)
             };
             
             this.addEntity(ship);
@@ -312,7 +361,8 @@ class EntityManager {
                     fromPort: true,
                     portX: port.x,
                     portY: port.y,
-                    portAccessible: true // Flag indicating this ship has good port access
+                    portAccessible: true, // Flag indicating this ship has good port access
+                    durability: this.createShipDurability(100)
                 };
                 this.addEntity(ship);
                 spawned++;

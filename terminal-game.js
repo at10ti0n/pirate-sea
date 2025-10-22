@@ -444,6 +444,52 @@ isPositionOccupied(x, y) {
     return this.entities.has(`${x},${y}`);
 }
 
+// Create durability data for a ship
+createShipDurability(maxHull = 100) {
+    return {
+        current: maxHull,
+        max: maxHull,
+        lastDamage: null
+    };
+}
+
+// Get ship condition based on durability
+getShipCondition(ship) {
+    if (!ship.durability) return 'unknown';
+    const percent = ship.durability.current / ship.durability.max;
+    if (percent >= 0.9) return 'excellent';
+    if (percent >= 0.6) return 'good';
+    if (percent >= 0.3) return 'damaged';
+    if (percent > 0) return 'critical';
+    return 'destroyed';
+}
+
+// Get ship icon based on condition
+getShipIcon(ship) {
+    const condition = this.getShipCondition(ship);
+    const icons = {
+        excellent: 'S',
+        good: 'S',
+        damaged: 's',
+        critical: 's',
+        destroyed: 'x'
+    };
+    return icons[condition] || 'S';
+}
+
+// Get ship color based on condition (terminal ANSI colors)
+getShipColor(ship) {
+    const condition = this.getShipCondition(ship);
+    const colors = {
+        excellent: '\x1b[33m',  // Yellow
+        good: '\x1b[33m',       // Yellow
+        damaged: '\x1b[93m',    // Bright yellow
+        critical: '\x1b[91m',   // Bright red
+        destroyed: '\x1b[90m'   // Gray
+    };
+    return colors[condition] || '\x1b[33m';
+}
+
 spawnPlayerStartingShip(playerX, playerY) {
     console.log('Spawning starting ship near player...');
 
@@ -474,7 +520,8 @@ spawnPlayerStartingShip(playerX, playerY) {
                         y: testY,
                         char: 'S',
                         color: '\x1b[33m',
-                        isStartingShip: true
+                        isStartingShip: true,
+                        durability: this.createShipDurability(100)
                     };
 
                     this.addEntity(startingShip);
@@ -724,7 +771,8 @@ class TerminalGame {
                         x: this.player.x,
                         y: this.player.y,
                         char: 'S',
-                        color: '\x1b[33m'
+                        color: '\x1b[33m',
+                        durability: this.entityManager.createShipDurability(100)
                     };
                     this.entityManager.addEntity(ship);
 
@@ -918,8 +966,17 @@ class TerminalGame {
                         // Check if there's an entity at this position
                         const entity = this.entityManager.getEntityAt(tileData.worldX, tileData.worldY);
                         if (entity) {
-                            const entityInfo = this.entityManager.entityTypes[entity.type];
-                            line += `${entityInfo.color}${entityInfo.char}\x1b[0m`;
+                            // Use dynamic icon/color for ships based on durability
+                            let char, color;
+                            if (entity.type === 'ship' && entity.durability) {
+                                char = this.entityManager.getShipIcon(entity);
+                                color = this.entityManager.getShipColor(entity);
+                            } else {
+                                const entityInfo = this.entityManager.entityTypes[entity.type];
+                                char = entityInfo.char;
+                                color = entityInfo.color;
+                            }
+                            line += `${color}${char}\x1b[0m`;
                         } else {
                             // Use resource glyph system if available
                             const glyphInfo = this.mapGenerator.generateResourceGlyph(
