@@ -6,6 +6,7 @@ class Player {
         this.y = 0;
         this.mode = 'foot'; // 'foot' or 'ship'
         this.lastShipPosition = null;
+        this.gold = 100; // Starting gold for trading
         this.initialize();
     }
 
@@ -279,5 +280,27 @@ class Player {
         }
 
         return validMoves;
+    }
+
+    // Gold management methods for trading system
+    getGold() {
+        return this.gold;
+    }
+
+    addGold(amount) {
+        this.gold += amount;
+        return this.gold;
+    }
+
+    removeGold(amount) {
+        if (this.gold >= amount) {
+            this.gold -= amount;
+            return true;
+        }
+        return false;
+    }
+
+    canAfford(cost) {
+        return this.gold >= cost;
     }
 }

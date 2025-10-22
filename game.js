@@ -9,6 +9,7 @@ class PirateSeaGame {
         this.uiManager = null;
         this.resourceManager = null;
         this.playerInventory = null;
+        this.economyManager = null;
         this.gameRunning = false;
         this.treasureCollected = 0;
         this.portsVisited = 0;
@@ -27,15 +28,16 @@ class PirateSeaGame {
             // Initialize game systems with seed
             this.mapGenerator = new MapGenerator(48, 28, this.seed);
             this.mapGenerator.generateMap();
-            
-            this.entityManager = new EntityManager(this.mapGenerator);
-            this.player = new Player(this.mapGenerator);
-            this.fogOfWar = new FogOfWar(this.mapGenerator);
-            
-            // Initialize resource system
+
+            // Initialize resource and economy systems
             const seededRandom = new SeededRandom(this.seed);
             this.resourceManager = new ResourceManager(this.mapGenerator, seededRandom);
             this.playerInventory = new PlayerInventory(100);
+            this.economyManager = new EconomyManager(seededRandom);
+
+            this.entityManager = new EntityManager(this.mapGenerator, this.economyManager);
+            this.player = new Player(this.mapGenerator);
+            this.fogOfWar = new FogOfWar(this.mapGenerator);
             
             this.uiManager = new UIManager(this);
             
@@ -188,10 +190,24 @@ class PirateSeaGame {
             this.uiManager.addMessage('Inventory system not initialized');
             return;
         }
-        
+
         this.uiManager.toggleInventory();
     }
-    
+
+    openTrading(port) {
+        if (!this.economyManager) {
+            this.uiManager.addMessage('Trading system not initialized');
+            return;
+        }
+
+        if (!port || !port.economy) {
+            this.uiManager.addMessage('No merchant available at this port');
+            return;
+        }
+
+        this.uiManager.showTradingScreen(port);
+    }
+
     // Seed management methods
     getSeed() {
         return this.mapGenerator ? this.mapGenerator.getSeed() : this.seed;

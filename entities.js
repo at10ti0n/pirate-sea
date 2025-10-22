@@ -1,6 +1,6 @@
 // Entity management system for ships, ports, and treasure
 class EntityManager {
-    constructor(mapGenerator) {
+    constructor(mapGenerator, economyManager = null) {
         this.mapGenerator = mapGenerator;
         this.entities = new Map(); // Key: 'x,y', Value: entity object
         this.entityTypes = {
@@ -8,9 +8,12 @@ class EntityManager {
             port: { char: 'P', color: '#e74c3c' },
             treasure: { char: '$', color: '#f1c40f' }
         };
-        
+
         // Use the same seeded random as the map generator
         this.seededRandom = mapGenerator.seededRandom;
+
+        // Economy manager for trading system
+        this.economyManager = economyManager;
     }
     
     addEntity(entity) {
@@ -125,11 +128,11 @@ class EntityManager {
     spawnPorts(centerX, centerY) {
         const portCount = 15; // More ports for increased land in 80% water world
         const walkableTiles = this.getAvailableWalkableTiles(centerX, centerY);
-        
+
         for (let i = 0; i < portCount && walkableTiles.length > 0; i++) {
             const randomIndex = Math.floor(this.seededRandom.random() * walkableTiles.length);
             const tile = walkableTiles[randomIndex];
-            
+
             const port = {
                 type: 'port',
                 x: tile.x,
@@ -140,11 +143,16 @@ class EntityManager {
                 shipsAvailable: this.seededRandom.randomInt(1, 3), // 1-3 ships per port
                 lastVisited: null
             };
-            
+
+            // Initialize economy data if economy manager is available
+            if (this.economyManager) {
+                port.economy = this.economyManager.determinePortEconomy(port, this.mapGenerator);
+            }
+
             this.addEntity(port);
             walkableTiles.splice(randomIndex, 1); // Remove used tile
         }
-        
+
         console.log(`Spawned ${Math.min(portCount, walkableTiles.length)} ports`);
     }
     
