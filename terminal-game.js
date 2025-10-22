@@ -493,8 +493,9 @@ spawnPorts(centerX, centerY, count = 5) {
     console.log('Spawning ports...');
     const portsSpawned = [];
 
-    for (let radius = 5; radius < 50 && portsSpawned.length < count; radius += 5) {
-        for (let angle = 0; angle < 360 && portsSpawned.length < count; angle += 60) {
+    // Start closer to player and search in smaller increments
+    for (let radius = 3; radius < 40 && portsSpawned.length < count; radius += 3) {
+        for (let angle = 0; angle < 360 && portsSpawned.length < count; angle += 45) {
             const testX = Math.round(centerX + radius * Math.cos(angle * Math.PI / 180));
             const testY = Math.round(centerY + radius * Math.sin(angle * Math.PI / 180));
 
@@ -518,7 +519,10 @@ spawnPorts(centerX, centerY, count = 5) {
 
                 this.addEntity(port);
                 portsSpawned.push(port);
-                console.log(`Port spawned at (${testX}, ${testY})`);
+
+                // Calculate distance for better logging
+                const distance = Math.round(Math.sqrt((testX - centerX) ** 2 + (testY - centerY) ** 2));
+                console.log(`Port spawned at (${testX}, ${testY}) - ${distance} tiles from player`);
             }
         }
     }
@@ -601,7 +605,7 @@ class TerminalGame {
 
         // Spawn entities
         this.entityManager.spawnPlayerStartingShip(this.player.x, this.player.y);
-        this.entityManager.spawnPorts(this.player.x, this.player.y, 5);
+        this.entityManager.spawnPorts(this.player.x, this.player.y, 10);
 
         this.running = true;
         this.addMessage('Welcome to Pirate Sea! Use WASD to move, B to board/disembark, Q to quit.');
