@@ -76,6 +76,11 @@ class PlayerInventory {
         return resource ? resource.quantity : 0;
     }
 
+    // Alias for compatibility with economy system
+    getQuantity(resourceType) {
+        return this.getResourceCount(resourceType);
+    }
+
     getAllResources() {
         const result = {};
         for (const [resourceType, data] of this.resources) {

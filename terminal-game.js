@@ -493,17 +493,37 @@ spawnPorts(centerX, centerY, count = 5) {
     console.log('Spawning ports...');
     const portsSpawned = [];
 
+    // Helper function to check if a position is coastal (land adjacent to ocean)
+    const isCoastal = (x, y) => {
+        const tile = this.mapGenerator.getBiomeAt(x, y);
+        if (!tile || !this.mapGenerator.isWalkable(x, y, false) ||
+            tile.biome === 'ocean' || tile.biome === 'mountain') {
+            return false;
+        }
+
+        // Check if adjacent to ocean
+        const directions = [
+            [0, 1], [0, -1], [1, 0], [-1, 0],
+            [1, 1], [1, -1], [-1, 1], [-1, -1]
+        ];
+
+        for (const [dx, dy] of directions) {
+            const adjacentTile = this.mapGenerator.getBiomeAt(x + dx, y + dy);
+            if (adjacentTile && adjacentTile.biome === 'ocean') {
+                return true;
+            }
+        }
+        return false;
+    };
+
     // Start closer to player and search in smaller increments
-    for (let radius = 3; radius < 40 && portsSpawned.length < count; radius += 3) {
-        for (let angle = 0; angle < 360 && portsSpawned.length < count; angle += 45) {
+    for (let radius = 3; radius < 50 && portsSpawned.length < count; radius += 2) {
+        for (let angle = 0; angle < 360 && portsSpawned.length < count; angle += 30) {
             const testX = Math.round(centerX + radius * Math.cos(angle * Math.PI / 180));
             const testY = Math.round(centerY + radius * Math.sin(angle * Math.PI / 180));
 
-            const tile = this.mapGenerator.getBiomeAt(testX, testY);
-            if (tile && this.mapGenerator.isWalkable(testX, testY, false) &&
-                tile.biome !== 'ocean' && tile.biome !== 'mountain' &&
-                !this.isPositionOccupied(testX, testY)) {
-
+            // Check if position is coastal and not occupied
+            if (isCoastal(testX, testY) && !this.isPositionOccupied(testX, testY)) {
                 const port = {
                     type: 'port',
                     x: testX,
@@ -522,12 +542,13 @@ spawnPorts(centerX, centerY, count = 5) {
 
                 // Calculate distance for better logging
                 const distance = Math.round(Math.sqrt((testX - centerX) ** 2 + (testY - centerY) ** 2));
-                console.log(`Port spawned at (${testX}, ${testY}) - ${distance} tiles from player`);
+                const tile = this.mapGenerator.getBiomeAt(testX, testY);
+                console.log(`Coastal port spawned at (${testX}, ${testY}) on ${tile.biome} - ${distance} tiles away`);
             }
         }
     }
 
-    console.log(`Spawned ${portsSpawned.length} ports`);
+    console.log(`Spawned ${portsSpawned.length} coastal ports`);
     return portsSpawned.length;
 }
 
