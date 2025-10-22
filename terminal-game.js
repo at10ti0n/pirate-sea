@@ -624,6 +624,9 @@ class TerminalGame {
         this.resourceManager = new ResourceManager(this.mapGenerator, this.mapGenerator.seededRandom);
         this.playerInventory = new PlayerInventory(500);
 
+        // Link inventory to player for economy system compatibility
+        this.player.inventory = this.playerInventory;
+
         // Spawn entities
         this.entityManager.spawnPlayerStartingShip(this.player.x, this.player.y);
         this.entityManager.spawnPorts(this.player.x, this.player.y, 10);
