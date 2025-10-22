@@ -5,6 +5,7 @@ const readline = require('readline');
 const ROT = require('rot-js');
 const ResourceManager = require('./resource-manager');
 const PlayerInventory = require('./player-inventory');
+const EconomyManager = require('./economy');
 
 // Seeded random number generator for deterministic procedural generation
 class SeededRandom {
@@ -367,6 +368,7 @@ class TerminalPlayer {
         this.x = 0;
         this.y = 0;
         this.mode = 'foot';
+        this.gold = 100; // Starting gold for trading
         this.initialize();
     }
 
@@ -411,15 +413,16 @@ class TerminalPlayer {
 }
 
 class TerminalEntityManager {
-    constructor(mapGenerator) {
+    constructor(mapGenerator, economyManager = null) {
         this.mapGenerator = mapGenerator;
+        this.economyManager = economyManager;
         this.entities = new Map();
         this.entityTypes = {
             ship: { char: 'S', color: '\x1b[33m' },
             port: { char: 'P', color: '\x1b[31m' },
             treasure: { char: '$', color: '\x1b[93m' }
-        
         };
+        this.seededRandom = mapGenerator.seededRandom;
     }
 
 addEntity(entity) {
@@ -486,6 +489,44 @@ spawnPlayerStartingShip(playerX, playerY) {
     return false;
 }
 
+spawnPorts(centerX, centerY, count = 5) {
+    console.log('Spawning ports...');
+    const portsSpawned = [];
+
+    for (let radius = 5; radius < 50 && portsSpawned.length < count; radius += 5) {
+        for (let angle = 0; angle < 360 && portsSpawned.length < count; angle += 60) {
+            const testX = Math.round(centerX + radius * Math.cos(angle * Math.PI / 180));
+            const testY = Math.round(centerY + radius * Math.sin(angle * Math.PI / 180));
+
+            const tile = this.mapGenerator.getBiomeAt(testX, testY);
+            if (tile && this.mapGenerator.isWalkable(testX, testY, false) &&
+                tile.biome !== 'ocean' && tile.biome !== 'mountain' &&
+                !this.isPositionOccupied(testX, testY)) {
+
+                const port = {
+                    type: 'port',
+                    x: testX,
+                    y: testY,
+                    char: 'P',
+                    color: '\x1b[31m'
+                };
+
+                // Initialize economy data if economy manager is available
+                if (this.economyManager) {
+                    port.economy = this.economyManager.determinePortEconomy(port, this.mapGenerator);
+                }
+
+                this.addEntity(port);
+                portsSpawned.push(port);
+                console.log(`Port spawned at (${testX}, ${testY})`);
+            }
+        }
+    }
+
+    console.log(`Spawned ${portsSpawned.length} ports`);
+    return portsSpawned.length;
+}
+
 getAllEntities() {
     return Array.from(this.entities.values());
 }
@@ -495,16 +536,22 @@ class TerminalGame {
     constructor(seed = null) {
         this.seed = seed;
         this.mapGenerator = new TerminalMapGenerator(60, 20, seed);
-        this.entityManager = new TerminalEntityManager(this.mapGenerator);
+
+        // Initialize economy system
+        this.economyManager = new EconomyManager(this.mapGenerator.seededRandom);
+        this.entityManager = new TerminalEntityManager(this.mapGenerator, this.economyManager);
+
         this.player = null;
         this.running = false;
         this.messageLog = [];
         this.showInventory = false;
-        
+        this.showTrading = false;
+        this.currentTradingPort = null;
+
         // Initialize resource system
         this.resourceManager = null;
         this.playerInventory = null;
-        
+
         this.setupReadline();
     }
 
@@ -519,8 +566,25 @@ class TerminalGame {
             process.stdin.setRawMode(true);
         }
 
+        // Handle line input for trading
+        this.rl.on('line', (input) => {
+            if (this.showTrading && input.trim().length > 0) {
+                this.handleTradingCommand(input);
+                this.render();
+            }
+        });
+
         process.stdin.on('keypress', (str, key) => {
-            this.handleKeyPress(key);
+            // Don't handle key presses if we're in trading mode and typing
+            if (!this.showTrading) {
+                this.handleKeyPress(key);
+            } else {
+                // Only handle 't' to close trading in trading mode
+                if (key && key.name === 't') {
+                    this.openTrading(); // Toggle off
+                    this.render();
+                }
+            }
         });
     }
 
@@ -535,14 +599,15 @@ class TerminalGame {
         this.resourceManager = new ResourceManager(this.mapGenerator, this.mapGenerator.seededRandom);
         this.playerInventory = new PlayerInventory(500);
 
-        // Spawn the starting ship near the player
+        // Spawn entities
         this.entityManager.spawnPlayerStartingShip(this.player.x, this.player.y);
+        this.entityManager.spawnPorts(this.player.x, this.player.y, 5);
 
         this.running = true;
         this.addMessage('Welcome to Pirate Sea! Use WASD to move, B to board/disembark, Q to quit.');
-        this.addMessage('Press G to gather resources, I to view inventory.');
+        this.addMessage('Press G to gather resources, I to view inventory, T to trade at ports.');
         this.addMessage('A ship has been placed nearby for you to use!');
-        this.addMessage(`World seed: ${this.mapGenerator.seed}`);
+        this.addMessage(`Starting gold: ${this.player.gold}g | World seed: ${this.mapGenerator.seed}`);
         this.render();
     }
 
@@ -573,6 +638,9 @@ class TerminalGame {
                 break;
             case 'i':
                 this.toggleInventory();
+                break;
+            case 't':
+                this.openTrading();
                 break;
         }
 
@@ -670,6 +738,133 @@ class TerminalGame {
         }
     }
 
+    openTrading() {
+        // Check if player is at a port
+        const port = this.entityManager.getEntityAt(this.player.x, this.player.y);
+
+        if (!port || port.type !== 'port') {
+            this.addMessage('You must be at a port to trade! (Stand on P)');
+            return;
+        }
+
+        if (!port.economy) {
+            this.addMessage('This port has no merchant!');
+            return;
+        }
+
+        this.showTrading = !this.showTrading;
+        if (this.showTrading) {
+            this.currentTradingPort = port;
+            this.addMessage(`Trading at ${port.economy.tier} port - Gold: ${this.player.gold}g`);
+        } else {
+            this.currentTradingPort = null;
+            this.addMessage('Closed trading');
+        }
+    }
+
+    renderTrading() {
+        if (!this.currentTradingPort || !this.currentTradingPort.economy) return '';
+
+        const port = this.currentTradingPort;
+        const tierNames = { small: 'Small', medium: 'Medium', large: 'Large', capital: 'Capital' };
+
+        let output = '\n';
+        output += '='.repeat(60) + '\n';
+        output += `  TRADING AT ${tierNames[port.economy.tier].toUpperCase()} PORT\n`;
+        output += '='.repeat(60) + '\n';
+        output += `Your Gold: ${this.player.gold}g | Merchant Gold: ${Math.floor(port.economy.gold)}g/${port.economy.maxGold}g\n\n`;
+
+        // Sell section
+        output += 'YOUR INVENTORY (Sell):\n';
+        output += '-'.repeat(60) + '\n';
+        const resources = Object.keys(this.economyManager.BASE_PRICES);
+        let hasSellItems = false;
+        for (const resource of resources) {
+            const qty = this.playerInventory.getQuantity(resource);
+            if (qty > 0) {
+                hasSellItems = true;
+                const sellPrice = this.economyManager.calculateSellPrice(resource, port);
+                const basePrice = this.economyManager.BASE_PRICES[resource];
+                const indicator = this.economyManager.getPriceIndicator(sellPrice, basePrice);
+                output += `  ${resource.padEnd(10)} x${qty.toString().padStart(3)} | Sell: ${sellPrice.toString().padStart(3)}g ${indicator}\n`;
+            }
+        }
+        if (!hasSellItems) {
+            output += '  (No items to sell)\n';
+        }
+
+        output += '\n';
+
+        // Buy section
+        output += 'PORT GOODS (Buy):\n';
+        output += '-'.repeat(60) + '\n';
+        for (const resource of resources) {
+            const buyPrice = this.economyManager.calculateBuyPrice(resource, port);
+            const basePrice = this.economyManager.BASE_PRICES[resource];
+            const indicator = this.economyManager.getPriceIndicator(buyPrice, basePrice);
+            output += `  ${resource.padEnd(10)} | Buy: ${buyPrice.toString().padStart(3)}g ${indicator}\n`;
+        }
+
+        output += '\n';
+        output += 'Commands: sell <resource> <qty> | buy <resource> <qty> | T to close\n';
+        output += 'Example: sell wood 10 | buy ore 5\n';
+        output += '='.repeat(60) + '\n';
+
+        return output;
+    }
+
+    handleTradingCommand(input) {
+        const parts = input.trim().toLowerCase().split(' ');
+        if (parts.length < 3) {
+            this.addMessage('Usage: sell/buy <resource> <quantity>');
+            return;
+        }
+
+        const action = parts[0];
+        const resource = parts[1];
+        const quantity = parseInt(parts[2]);
+
+        if (isNaN(quantity) || quantity <= 0) {
+            this.addMessage('Invalid quantity');
+            return;
+        }
+
+        if (!this.economyManager.BASE_PRICES[resource]) {
+            this.addMessage(`Unknown resource: ${resource}`);
+            return;
+        }
+
+        if (action === 'sell') {
+            const result = this.economyManager.executeSellTransaction(
+                this.player,
+                this.currentTradingPort,
+                resource,
+                quantity
+            );
+
+            if (result.success) {
+                this.addMessage(`Sold ${quantity} ${resource} for ${result.earned}g!`);
+            } else {
+                this.addMessage(`Cannot sell: ${result.error}`);
+            }
+        } else if (action === 'buy') {
+            const result = this.economyManager.executeBuyTransaction(
+                this.player,
+                this.currentTradingPort,
+                resource,
+                quantity
+            );
+
+            if (result.success) {
+                this.addMessage(`Bought ${quantity} ${resource} for ${result.spent}g!`);
+            } else {
+                this.addMessage(`Cannot buy: ${result.error}`);
+            }
+        } else {
+            this.addMessage('Unknown action. Use sell or buy');
+        }
+    }
+
     render() {
         console.clear();
 
@@ -716,11 +911,17 @@ class TerminalGame {
         }
 
         console.log(display);
-        console.log(`\nPosition: (${this.player.x}, ${this.player.y}) | Mode: ${this.player.mode}`);
-        console.log('Controls: WASD=Move, B=Board/Disembark, G=Gather, I=Inventory, Q=Quit');
+        console.log(`\nPosition: (${this.player.x}, ${this.player.y}) | Mode: ${this.player.mode} | Gold: ${this.player.gold}g`);
+        console.log('Controls: WASD=Move, B=Board/Disembark, G=Gather, I=Inventory, T=Trade, Q=Quit');
+
+        // Display trading if active
+        if (this.showTrading) {
+            console.log(this.renderTrading());
+            console.log('\nType your command and press Enter:');
+        }
 
         // Display inventory if toggled
-        if (this.showInventory) {
+        if (this.showInventory && !this.showTrading) {
             console.log('\n' + this.playerInventory.getInventoryDisplayTerminal(this.resourceManager));
         }
 
