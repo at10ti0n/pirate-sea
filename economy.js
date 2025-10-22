@@ -72,11 +72,27 @@ class EconomyManager {
         const biomeCounts = {};
 
         // Count biomes in surrounding area
+        // Support both web (getTileAt) and terminal (getBiomeAt) versions
         for (let dx = -radius; dx <= radius; dx++) {
             for (let dy = -radius; dy <= radius; dy++) {
-                const tile = mapGenerator.getTileAt(port.x + dx, port.y + dy);
-                if (tile && tile.biome) {
-                    const biome = tile.biome;
+                let biome = null;
+
+                // Try web version method first
+                if (mapGenerator.getTileAt) {
+                    const tile = mapGenerator.getTileAt(port.x + dx, port.y + dy);
+                    if (tile && tile.biome) {
+                        biome = tile.biome;
+                    }
+                }
+                // Fall back to terminal version method
+                else if (mapGenerator.getBiomeAt) {
+                    const tile = mapGenerator.getBiomeAt(port.x + dx, port.y + dy);
+                    if (tile && tile.biome) {
+                        biome = tile.biome;
+                    }
+                }
+
+                if (biome) {
                     biomeCounts[biome] = (biomeCounts[biome] || 0) + 1;
                 }
             }
