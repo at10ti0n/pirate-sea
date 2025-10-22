@@ -7,6 +7,7 @@ class Player {
         this.mode = 'foot'; // 'foot' or 'ship'
         this.lastShipPosition = null;
         this.gold = 100; // Starting gold for trading
+        this.shipDurability = null; // Track player's ship durability
         this.initialize();
     }
 
@@ -210,6 +211,9 @@ class Player {
             return { success: false, message: 'No ship nearby to board!' };
         }
 
+        // Store ship's durability before boarding
+        this.shipDurability = boardInfo.ship.durability || entityManager.createShipDurability(100);
+
         // Remove ship entity from map
         entityManager.removeEntity(boardInfo.ship.x, boardInfo.ship.y);
 
@@ -247,13 +251,14 @@ class Player {
 
         this.mode = 'foot';
 
-        // Create ship entity at previous position
+        // Create ship entity at previous position with preserved durability
         entityManager.addEntity({
             type: 'ship',
             x: shipX,
             y: shipY,
             char: 'S',
-            color: '#8b4513'
+            color: '#8b4513',
+            durability: this.shipDurability || entityManager.createShipDurability(100)
         });
 
         // Customize message based on landing on beach or other terrain

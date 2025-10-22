@@ -165,6 +165,10 @@ class UIManager {
             case 'T':
                 this.handleTrading();
                 break;
+            case 'r':
+            case 'R':
+                this.handleRepair();
+                break;
         }
     }
     
@@ -269,6 +273,53 @@ class UIManager {
 
         // Open trading interface
         this.game.openTrading(port);
+    }
+
+    handleRepair() {
+        if (!this.game || !this.game.player || !this.game.entityManager) return;
+
+        // Check if player is at a port
+        const port = this.game.entityManager.getEntityAt(this.game.player.x, this.game.player.y);
+
+        if (!port || port.type !== 'port') {
+            this.addMessage('You must be at a port to repair!');
+            return;
+        }
+
+        if (!port.economy) {
+            this.addMessage('This port has no shipyard!');
+            return;
+        }
+
+        // Check if player has a ship
+        if (!this.game.player.shipDurability) {
+            this.addMessage('You don\'t have a ship to repair!');
+            return;
+        }
+
+        // Create a temporary ship object for repair calculations
+        const tempShip = { durability: this.game.player.shipDurability };
+
+        // Get repair info
+        const repairInfo = this.game.economyManager.getRepairInfo(tempShip, port);
+
+        if (!repairInfo.canRepair) {
+            this.addMessage('Your ship is already at full health!');
+            return;
+        }
+
+        // Execute repair
+        const result = this.game.economyManager.executeRepairTransaction(
+            this.game.player,
+            tempShip,
+            port
+        );
+
+        if (result.success) {
+            this.addMessage(`Repaired ${result.hpRepaired} HP for ${result.cost}g! Ship: ${result.newHp}/${result.maxHp} HP`);
+        } else {
+            this.addMessage(`Repair failed: ${result.error} (Cost: ${repairInfo.totalCost}g)`);
+        }
     }
 
     initializeDisplay() {

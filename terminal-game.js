@@ -369,6 +369,7 @@ class TerminalPlayer {
         this.y = 0;
         this.mode = 'foot';
         this.gold = 100; // Starting gold for trading
+        this.shipDurability = null; // Track player's ship durability
         this.initialize();
     }
 
@@ -680,7 +681,7 @@ class TerminalGame {
 
         this.running = true;
         this.addMessage('Welcome to Pirate Sea! Use WASD to move, B to board/disembark, Q to quit.');
-        this.addMessage('Press G to gather resources, I to view inventory, T to trade at ports.');
+        this.addMessage('Press G to gather resources, I to view inventory, T to trade, R to repair at ports.');
         this.addMessage('A ship has been placed nearby for you to use!');
         this.addMessage(`Starting gold: ${this.player.gold}g | World seed: ${this.mapGenerator.seed}`);
         this.render();
@@ -717,6 +718,9 @@ class TerminalGame {
             case 't':
                 this.openTrading();
                 break;
+            case 'r':
+                this.repairShip();
+                break;
         }
 
         this.render();
@@ -727,6 +731,8 @@ class TerminalGame {
             // Check if there's a ship at the current position or adjacent
             const currentEntity = this.entityManager.getEntityAt(this.player.x, this.player.y);
             if (currentEntity && currentEntity.type === 'ship') {
+                // Store ship's durability before boarding
+                this.player.shipDurability = currentEntity.durability || this.entityManager.createShipDurability(100);
                 // Remove the ship entity since player is boarding it
                 this.entityManager.removeEntity(this.player.x, this.player.y);
                 this.player.mode = 'ship';
@@ -745,6 +751,8 @@ class TerminalGame {
                     // Check if the ship position is navigable water
                     const shipTile = this.mapGenerator.getBiomeAt(this.player.x + dx, this.player.y + dy);
                     if (shipTile && shipTile.biome === 'ocean') {
+                        // Store ship's durability before boarding
+                        this.player.shipDurability = entity.durability || this.entityManager.createShipDurability(100);
                         // Remove the ship entity since player is boarding it
                         this.entityManager.removeEntity(this.player.x + dx, this.player.y + dy);
 
@@ -765,14 +773,14 @@ class TerminalGame {
             for (const [dx, dy] of directions) {
                 const landTile = this.mapGenerator.getBiomeAt(this.player.x + dx, this.player.y + dy);
                 if (landTile && this.mapGenerator.isWalkable(this.player.x + dx, this.player.y + dy, false)) {
-                    // Leave ship at current position
+                    // Leave ship at current position with preserved durability
                     const ship = {
                         type: 'ship',
                         x: this.player.x,
                         y: this.player.y,
                         char: 'S',
                         color: '\x1b[33m',
-                        durability: this.entityManager.createShipDurability(100)
+                        durability: this.player.shipDurability || this.entityManager.createShipDurability(100)
                     };
                     this.entityManager.addEntity(ship);
 
@@ -835,6 +843,51 @@ class TerminalGame {
         } else {
             this.currentTradingPort = null;
             this.addMessage('Closed trading');
+        }
+    }
+
+    repairShip() {
+        // Check if player is at a port
+        const port = this.entityManager.getEntityAt(this.player.x, this.player.y);
+
+        if (!port || port.type !== 'port') {
+            this.addMessage('You must be at a port to repair! (Stand on P)');
+            return;
+        }
+
+        if (!port.economy) {
+            this.addMessage('This port has no shipyard!');
+            return;
+        }
+
+        // Check if player has a ship
+        if (!this.player.shipDurability) {
+            this.addMessage('You don\'t have a ship to repair!');
+            return;
+        }
+
+        // Create a temporary ship object for repair calculations
+        const tempShip = { durability: this.player.shipDurability };
+
+        // Get repair info
+        const repairInfo = this.economyManager.getRepairInfo(tempShip, port);
+
+        if (!repairInfo.canRepair) {
+            this.addMessage('Your ship is already at full health!');
+            return;
+        }
+
+        // Execute repair
+        const result = this.economyManager.executeRepairTransaction(
+            this.player,
+            tempShip,
+            port
+        );
+
+        if (result.success) {
+            this.addMessage(`Repaired ${result.hpRepaired} HP for ${result.cost}g! Ship: ${result.newHp}/${result.maxHp} HP`);
+        } else {
+            this.addMessage(`Repair failed: ${result.error} (Cost: ${repairInfo.totalCost}g)`);
         }
     }
 
@@ -997,7 +1050,14 @@ class TerminalGame {
 
         console.log(display);
         console.log(`\nPosition: (${this.player.x}, ${this.player.y}) | Mode: ${this.player.mode} | Gold: ${this.player.gold}g`);
-        console.log('Controls: WASD=Move, B=Board/Disembark, G=Gather, I=Inventory, T=Trade, Q=Quit');
+
+        // Show ship HP if player has a ship
+        if (this.player.shipDurability) {
+            const condition = this.entityManager.getShipCondition({ durability: this.player.shipDurability });
+            console.log(`Ship: ${this.player.shipDurability.current}/${this.player.shipDurability.max} HP (${condition})`);
+        }
+
+        console.log('Controls: WASD=Move, B=Board/Disembark, G=Gather, I=Inventory, T=Trade, R=Repair, Q=Quit');
 
         // Display trading if active
         if (this.showTrading) {
