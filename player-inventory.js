@@ -138,7 +138,7 @@ class PlayerInventory {
         return Array.from(this.resources.keys());
     }
 
-    getResourceCount() {
+    getResourceTypeCount() {
         return this.resources.size;
     }
 
