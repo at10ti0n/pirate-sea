@@ -730,10 +730,6 @@ class TerminalGame {
             case 'r':
                 this.repairShip();
                 break;
-            case 'd':
-                // Debug: damage ship for testing
-                this.damageShip(15);
-                break;
         }
 
         // Update game state

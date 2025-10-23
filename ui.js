@@ -169,13 +169,6 @@ class UIManager {
             case 'R':
                 this.handleRepair();
                 break;
-            case 'd':
-            case 'D':
-                // Debug: damage ship for testing
-                if (this.game) {
-                    this.game.damageShip(15);
-                }
-                break;
         }
     }
     
