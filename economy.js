@@ -177,6 +177,39 @@ class EconomyManager {
 
         const tierConfig = this.PORT_TIERS[tier];
 
+        // Initialize actual inventory based on supply levels and tier
+        const inventory = {};
+        const inventoryCapacity = {};
+        const productionRates = {}; // Units per hour
+
+        allResources.forEach(resource => {
+            const supply = resourceSupply[resource] || 0;
+            const tiles = resourceAvailability[resource] || 0;
+
+            // Capacity based on tier and resource availability
+            if (supply === 0) {
+                // Resource doesn't exist on island - very limited import capacity
+                inventoryCapacity[resource] = Math.floor(tierConfig.inventorySize * 0.1);
+                inventory[resource] = 0; // Start with none
+                productionRates[resource] = 0; // Can't produce what doesn't exist
+            } else if (produces.includes(resource)) {
+                // Abundant resource - large capacity
+                inventoryCapacity[resource] = tierConfig.inventorySize;
+                inventory[resource] = Math.floor(tierConfig.inventorySize * 0.7); // Start at 70%
+                productionRates[resource] = tiles * 0.5; // Production based on tile count
+            } else if (consumes.includes(resource)) {
+                // Scarce resource - medium capacity
+                inventoryCapacity[resource] = Math.floor(tierConfig.inventorySize * 0.3);
+                inventory[resource] = Math.floor(inventoryCapacity[resource] * 0.3); // Start low
+                productionRates[resource] = tiles * 0.2; // Slow production
+            } else {
+                // Neutral resource - normal capacity
+                inventoryCapacity[resource] = Math.floor(tierConfig.inventorySize * 0.5);
+                inventory[resource] = Math.floor(inventoryCapacity[resource] * 0.5);
+                productionRates[resource] = tiles * 0.3;
+            }
+        });
+
         return {
             produces: produces,
             consumes: consumes,
@@ -186,10 +219,15 @@ class EconomyManager {
             gold: tierConfig.goldPool,
             maxGold: tierConfig.goldPool,
             goldRegenRate: tierConfig.goldRegen,
-            supplyLevels: resourceSupply, // Use calculated supply based on island resources
+            supplyLevels: resourceSupply, // Base supply from island
             tier: tier,
             lastTrade: Date.now(),
+            lastRegeneration: Date.now(),
             totalTradesCount: 0,
+            // Dynamic inventory system
+            inventory: inventory,
+            inventoryCapacity: inventoryCapacity,
+            productionRates: productionRates,
             // Store resource availability for reference
             resourceAvailability: resourceAvailability
         };
@@ -212,14 +250,24 @@ class EconomyManager {
             geoMod = 1.3;  // 30% more expensive if port needs it
         }
 
-        // 2. Supply level modifier
-        const supply = port.economy.supplyLevels[resource] || 1.0;
-        // High supply (>1.0) = cheaper to buy (port has surplus from abundant island resources)
-        // Low supply (<1.0) = more expensive to buy (scarce on island, port must import)
-        // supply=0 means resource doesn't exist on island at all
-        const supplyMod = Math.max(0.5, Math.min(2.0,
-            1.5 - (supply * 0.5) // Inverted: more supply = lower multiplier
-        ));
+        // 2. Current inventory level modifier (DYNAMIC)
+        const currentInventory = port.economy.inventory[resource] || 0;
+        const capacity = port.economy.inventoryCapacity[resource] || 1;
+        const stockLevel = currentInventory / capacity; // 0.0 to 1.0+
+
+        // Low stock = expensive (scarcity), high stock = cheap (surplus)
+        let inventoryMod = 1.0;
+        if (currentInventory === 0) {
+            inventoryMod = 2.5; // Out of stock - very expensive!
+        } else if (stockLevel < 0.2) {
+            inventoryMod = 1.8; // Very low stock
+        } else if (stockLevel < 0.4) {
+            inventoryMod = 1.4; // Low stock
+        } else if (stockLevel > 0.8) {
+            inventoryMod = 0.7; // High stock - clearance prices
+        } else {
+            inventoryMod = 1.0; // Normal stock
+        }
 
         // 3. Port tier variance (random fluctuation)
         const tierConfig = this.PORT_TIERS[port.economy.tier];
@@ -230,7 +278,7 @@ class EconomyManager {
         const markup = 1.2;
 
         const finalPrice = Math.round(
-            basePrice * geoMod * supplyMod * randomMod * markup
+            basePrice * geoMod * inventoryMod * randomMod * markup
         );
 
         return Math.max(1, finalPrice);
@@ -253,14 +301,24 @@ class EconomyManager {
             geoMod = 0.7;  // Port pays LESS for what it already has
         }
 
-        // 2. Demand modifier (inverse of supply for buying)
-        const supply = port.economy.supplyLevels[resource] || 1.0;
-        // High supply (>1.0) = low demand = lower sell price (port already has lots)
-        // Low supply (<1.0) = high demand = higher sell price (port needs to import)
-        // supply=0 means port desperately needs this resource
-        const demandMod = Math.max(0.5, Math.min(2.0,
-            0.5 + (1.0 - supply) * 0.8 // Inverted: less supply = higher multiplier
-        ));
+        // 2. Current inventory level modifier (DYNAMIC - inverse of buy)
+        const currentInventory = port.economy.inventory[resource] || 0;
+        const capacity = port.economy.inventoryCapacity[resource] || 1;
+        const stockLevel = currentInventory / capacity; // 0.0 to 1.0+
+
+        // Low stock = port pays more (needs imports), high stock = pays less (has surplus)
+        let demandMod = 1.0;
+        if (currentInventory === 0 || stockLevel < 0.2) {
+            demandMod = 1.8; // Very low/empty - port desperately wants this
+        } else if (stockLevel < 0.4) {
+            demandMod = 1.4; // Low stock - port wants this
+        } else if (stockLevel > 0.8) {
+            demandMod = 0.6; // High stock - port doesn't need more
+        } else if (stockLevel >= 1.0) {
+            demandMod = 0.3; // Full - port won't pay much
+        } else {
+            demandMod = 1.0; // Normal demand
+        }
 
         // 3. Port tier variance
         const tierConfig = this.PORT_TIERS[port.economy.tier];
@@ -352,6 +410,36 @@ class EconomyManager {
     }
 
     /**
+     * Regenerate resources based on island production
+     * Call this periodically (e.g., every minute or hour)
+     * @param {Object} port - Port entity
+     * @param {number} deltaHours - Time elapsed in hours
+     */
+    tickResourceRegeneration(port, deltaHours) {
+        if (!port.economy.productionRates || !port.economy.inventory) return;
+
+        for (const resource in port.economy.productionRates) {
+            const productionRate = port.economy.productionRates[resource]; // units per hour
+            const currentInventory = port.economy.inventory[resource] || 0;
+            const capacity = port.economy.inventoryCapacity[resource] || 0;
+
+            // Only regenerate if production rate > 0 (island has this resource)
+            if (productionRate > 0) {
+                // Calculate regeneration amount
+                const regenAmount = productionRate * deltaHours;
+
+                // Add regenerated resources (don't exceed capacity)
+                port.economy.inventory[resource] = Math.min(
+                    capacity,
+                    currentInventory + regenAmount
+                );
+            }
+        }
+
+        port.economy.lastRegeneration = Date.now();
+    }
+
+    /**
      * Execute buy transaction (player buying from merchant)
      * @param {Object} player - Player object with gold and inventory
      * @param {Object} port - Port entity
@@ -382,11 +470,24 @@ class EconomyManager {
             };
         }
 
+        // Check port inventory availability
+        const portInventory = port.economy.inventory[resource] || 0;
+        if (portInventory < quantity) {
+            return {
+                success: false,
+                error: 'Port doesn\'t have enough stock!',
+                requested: quantity,
+                available: portInventory
+            };
+        }
+
         // Execute transaction
         player.gold -= totalCost;
         port.economy.gold += totalCost;
         player.inventory.addResource(resource, quantity);
-        this.updateSupplyOnBuy(port, resource, quantity);
+
+        // Deplete port inventory
+        port.economy.inventory[resource] -= quantity;
 
         port.economy.lastTrade = Date.now();
         port.economy.totalTradesCount++;
@@ -395,7 +496,8 @@ class EconomyManager {
             success: true,
             spent: totalCost,
             pricePerUnit: pricePerUnit,
-            quantity: quantity
+            quantity: quantity,
+            portStockRemaining: port.economy.inventory[resource]
         };
     }
 
@@ -441,11 +543,27 @@ class EconomyManager {
             };
         }
 
+        // Check port storage capacity
+        const portInventory = port.economy.inventory[resource] || 0;
+        const capacity = port.economy.inventoryCapacity[resource] || 0;
+        const spaceAvailable = capacity - portInventory;
+
+        if (spaceAvailable < quantity) {
+            return {
+                success: false,
+                error: 'Port storage is full for this resource!',
+                requested: quantity,
+                spaceAvailable: spaceAvailable
+            };
+        }
+
         // Execute transaction
         player.gold += totalValue;
         port.economy.gold -= totalValue;
         player.inventory.removeResource(resource, quantity);
-        this.updateSupplyOnSell(port, resource, quantity);
+
+        // Add to port inventory
+        port.economy.inventory[resource] += quantity;
 
         port.economy.lastTrade = Date.now();
         port.economy.totalTradesCount++;
@@ -454,7 +572,8 @@ class EconomyManager {
             success: true,
             earned: totalValue,
             pricePerUnit: pricePerUnit,
-            quantity: quantity
+            quantity: quantity,
+            portStockNow: port.economy.inventory[resource]
         };
     }
 
@@ -464,10 +583,12 @@ class EconomyManager {
      * @param {number} deltaMinutes - Time elapsed in minutes
      */
     tickAllPorts(ports, deltaMinutes = 1) {
+        const deltaHours = deltaMinutes / 60; // Convert to hours for resource regen
+
         ports.forEach(port => {
             if (port.economy) {
-                this.tickSupplyRecovery(port);
                 this.tickGoldRegeneration(port, deltaMinutes);
+                this.tickResourceRegeneration(port, deltaHours);
             }
         });
     }
