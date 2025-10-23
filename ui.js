@@ -746,7 +746,7 @@ class UIManager {
         const sellItems = document.getElementById('trading-sell-items');
         if (sellItems) {
             let html = '<table style="width: 100%; border-collapse: collapse;">';
-            html += '<tr style="border-bottom: 1px solid #555;"><th style="text-align: left; padding: 5px;">Item</th><th>Qty</th><th>Price</th><th>Indicator</th><th>Action</th></tr>';
+            html += '<tr style="border-bottom: 1px solid #555;"><th style="text-align: left; padding: 5px;">Item</th><th>Qty</th><th>Price</th><th>Indicator</th><th>Port Space</th><th>Action</th></tr>';
 
             let index = 1;
             const resources = Object.keys(economyManager.BASE_PRICES);
@@ -758,11 +758,25 @@ class UIManager {
                     const indicator = economyManager.getPriceIndicator(sellPrice, basePrice);
                     const indicatorColor = indicator === '★' ? '#2ecc71' : indicator === '↓' ? '#e74c3c' : '#95a5a6';
 
+                    // Port storage space
+                    const portStock = port.economy.inventory[resource] || 0;
+                    const portCapacity = port.economy.inventoryCapacity[resource] || 1;
+                    const spaceAvailable = portCapacity - portStock;
+                    let storageColor = '#95a5a6';
+                    let storageText = `${spaceAvailable}`;
+                    if (spaceAvailable === 0) {
+                        storageColor = '#e74c3c';
+                        storageText = 'FULL';
+                    } else if (spaceAvailable < qty) {
+                        storageColor = '#f39c12';
+                    }
+
                     html += `<tr style="border-bottom: 1px solid #333;">
                         <td style="padding: 5px;">${this.getResourceIcon(resource)} ${resource}</td>
                         <td style="text-align: center;">${qty}</td>
                         <td style="text-align: center; color: #f1c40f;">${sellPrice}g</td>
                         <td style="text-align: center; color: ${indicatorColor};">${indicator || '-'}</td>
+                        <td style="text-align: center; color: ${storageColor};">${storageText}</td>
                         <td style="text-align: center;"><span style="color: #95a5a6;">[${index}]</span> Sell 1</td>
                     </tr>`;
                     index++;
@@ -771,7 +785,7 @@ class UIManager {
             }
 
             if (index === 1) {
-                html += '<tr><td colspan="5" style="padding: 10px; text-align: center; color: #7f8c8d;">No items to sell</td></tr>';
+                html += '<tr><td colspan="6" style="padding: 10px; text-align: center; color: #7f8c8d;">No items to sell</td></tr>';
             }
 
             html += '</table>';
@@ -782,7 +796,7 @@ class UIManager {
         const buyItems = document.getElementById('trading-buy-items');
         if (buyItems) {
             let html = '<table style="width: 100%; border-collapse: collapse;">';
-            html += '<tr style="border-bottom: 1px solid #555;"><th style="text-align: left; padding: 5px;">Item</th><th>Price</th><th>Indicator</th><th>Action</th></tr>';
+            html += '<tr style="border-bottom: 1px solid #555;"><th style="text-align: left; padding: 5px;">Item</th><th>Price</th><th>Indicator</th><th>Port Stock</th><th>Action</th></tr>';
 
             let index = 1;
             const resources = Object.keys(economyManager.BASE_PRICES);
@@ -792,10 +806,30 @@ class UIManager {
                 const indicator = economyManager.getPriceIndicator(buyPrice, basePrice);
                 const indicatorColor = indicator === '★' ? '#e74c3c' : indicator === '↓' ? '#2ecc71' : '#95a5a6';
 
+                // Port stock information
+                const stock = port.economy.inventory[resource] || 0;
+                const capacity = port.economy.inventoryCapacity[resource] || 1;
+                const stockPercent = stock / capacity;
+                let stockColor = '#95a5a6';
+                let stockText = `${Math.floor(stock)}/${capacity}`;
+                let stockStatus = '';
+
+                if (stock === 0) {
+                    stockColor = '#e74c3c';
+                    stockStatus = ' OUT';
+                } else if (stockPercent < 0.2) {
+                    stockColor = '#f39c12';
+                    stockStatus = ' LOW';
+                } else if (stockPercent > 0.8) {
+                    stockColor = '#2ecc71';
+                    stockStatus = ' HIGH';
+                }
+
                 html += `<tr style="border-bottom: 1px solid #333;">
                     <td style="padding: 5px;">${this.getResourceIcon(resource)} ${resource}</td>
                     <td style="text-align: center; color: #3498db;">${buyPrice}g</td>
                     <td style="text-align: center; color: ${indicatorColor};">${indicator || '-'}</td>
+                    <td style="text-align: center; color: ${stockColor};">${stockText}${stockStatus}</td>
                     <td style="text-align: center;"><span style="color: #95a5a6;">[${index}]</span> Buy 1</td>
                 </tr>`;
                 index++;

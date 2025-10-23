@@ -1151,7 +1151,22 @@ class TerminalGame {
                 const sellPrice = this.economyManager.calculateSellPrice(resource, port);
                 const basePrice = this.economyManager.BASE_PRICES[resource];
                 const indicator = this.economyManager.getPriceIndicator(sellPrice, basePrice);
-                output += `  ${resource.padEnd(10)} x${qty.toString().padStart(3)} | Sell: ${sellPrice.toString().padStart(3)}g ${indicator}\n`;
+
+                // Check port storage space for this resource
+                const portStock = port.economy.inventory[resource] || 0;
+                const portCapacity = port.economy.inventoryCapacity[resource] || 1;
+                const spaceAvailable = portCapacity - portStock;
+
+                let storageInfo = '';
+                if (spaceAvailable === 0) {
+                    storageInfo = '\x1b[31m(Port FULL)\x1b[0m';
+                } else if (spaceAvailable < qty) {
+                    storageInfo = `\x1b[33m(Port: ${spaceAvailable} space)\x1b[0m`;
+                } else {
+                    storageInfo = `\x1b[90m(Port: ${spaceAvailable} space)\x1b[0m`;
+                }
+
+                output += `  ${resource.padEnd(10)} x${qty.toString().padStart(3)} | Sell: ${sellPrice.toString().padStart(3)}g ${indicator.padEnd(1)} ${storageInfo}\n`;
             }
         }
         if (!hasSellItems) {
@@ -1167,7 +1182,27 @@ class TerminalGame {
             const buyPrice = this.economyManager.calculateBuyPrice(resource, port);
             const basePrice = this.economyManager.BASE_PRICES[resource];
             const indicator = this.economyManager.getPriceIndicator(buyPrice, basePrice);
-            output += `  ${resource.padEnd(10)} | Buy: ${buyPrice.toString().padStart(3)}g ${indicator}\n`;
+
+            // Get stock information
+            const stock = port.economy.inventory[resource] || 0;
+            const capacity = port.economy.inventoryCapacity[resource] || 1;
+            const stockPercent = stock / capacity;
+
+            // Stock status indicator
+            let stockStatus = '';
+            if (stock === 0) {
+                stockStatus = '\x1b[31mOUT OF STOCK\x1b[0m';
+            } else if (stockPercent < 0.2) {
+                stockStatus = '\x1b[33mVERY LOW\x1b[0m';
+            } else if (stockPercent < 0.4) {
+                stockStatus = '\x1b[93mLOW\x1b[0m';
+            } else if (stockPercent > 0.8) {
+                stockStatus = '\x1b[32mHIGH\x1b[0m';
+            } else {
+                stockStatus = '\x1b[90mNormal\x1b[0m';
+            }
+
+            output += `  ${resource.padEnd(10)} | Buy: ${buyPrice.toString().padStart(3)}g ${indicator.padEnd(1)} | Stock: ${Math.floor(stock).toString().padStart(3)}/${capacity.toString().padStart(3)} (${stockStatus})\n`;
         }
 
         output += '\n';
