@@ -99,7 +99,13 @@ class FogOfWar {
         // Calculate FOV from player position using ROT.js circular shadowcasting
         this.fov.compute(playerX, playerY, viewRadius, (x, y, r, visibility) => {
             // visibility is a value between 0 and 1 from ROT.js
-            if (visibility > 0) {
+            // r is the distance from the player
+            // IMPORTANT: Filter by circular distance, not just visibility
+            const dx = x - playerX;
+            const dy = y - playerY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (visibility > 0 && distance <= viewRadius) {
                 this.mapGenerator.setVisibility(x, y, true);
             }
         });

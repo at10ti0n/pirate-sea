@@ -134,15 +134,20 @@ class EconomyManager {
             consumes.push(...sortedResources.slice(-2).map(r => r[0]));
         }
 
-        // Determine port tier based on distance from origin (0,0)
-        const distanceFromCenter = Math.sqrt(port.x ** 2 + port.y ** 2);
+        // Determine port tier using seeded random for variety
+        // Use port position as seed for deterministic but varied results
+        const portSeed = (port.x * 1000 + port.y * 1000000) ^ this.seededRandom.seed;
+        const tierRandom = Math.abs(Math.sin(portSeed)) * 100;
+
         let tier = 'small';
-        if (distanceFromCenter < 50) {
-            tier = 'capital';
-        } else if (distanceFromCenter < 100) {
-            tier = 'large';
-        } else if (distanceFromCenter < 200) {
-            tier = 'medium';
+        if (tierRandom < 15) {
+            tier = 'capital';  // 15% chance
+        } else if (tierRandom < 40) {
+            tier = 'large';    // 25% chance
+        } else if (tierRandom < 70) {
+            tier = 'medium';   // 30% chance
+        } else {
+            tier = 'small';    // 30% chance
         }
 
         const tierConfig = this.PORT_TIERS[tier];
