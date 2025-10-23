@@ -77,74 +77,15 @@ class EconomyManager {
      * @returns {Object} Economy configuration
      */
     determinePortEconomy(port, mapGenerator) {
-        const radius = 10;
-        const biomeCounts = {};
-
-        // Count biomes in surrounding area
-        // Support both web (getTileAt) and terminal (getBiomeAt) versions
-        for (let dx = -radius; dx <= radius; dx++) {
-            for (let dy = -radius; dy <= radius; dy++) {
-                let biome = null;
-
-                // Try web version method first
-                if (mapGenerator.getTileAt) {
-                    const tile = mapGenerator.getTileAt(port.x + dx, port.y + dy);
-                    if (tile && tile.biome) {
-                        biome = tile.biome;
-                    }
-                }
-                // Fall back to terminal version method
-                else if (mapGenerator.getBiomeAt) {
-                    const tile = mapGenerator.getBiomeAt(port.x + dx, port.y + dy);
-                    if (tile && tile.biome) {
-                        biome = tile.biome;
-                    }
-                }
-
-                if (biome) {
-                    biomeCounts[biome] = (biomeCounts[biome] || 0) + 1;
-                }
-            }
-        }
-
-        // Count resource availability based on nearby biomes
-        const resourceCounts = {};
-        for (const [biome, count] of Object.entries(biomeCounts)) {
-            const resources = this.BIOME_RESOURCES[biome] || [];
-            resources.forEach(resource => {
-                resourceCounts[resource] = (resourceCounts[resource] || 0) + count;
-            });
-        }
-
-        // Sort resources by availability
-        const sortedResources = Object.entries(resourceCounts)
-            .sort((a, b) => b[1] - a[1]);
-
-        // Determine what port produces (abundant) and consumes (scarce)
-        const produces = [];
-        const consumes = [];
-
-        if (sortedResources.length >= 2) {
-            // Top 2 resources = produces (cheap to buy here, expensive to sell)
-            produces.push(...sortedResources.slice(0, 2).map(r => r[0]));
-        }
-
-        if (sortedResources.length >= 4) {
-            // Bottom 2 resources = consumes (expensive to buy here, cheap to sell)
-            consumes.push(...sortedResources.slice(-2).map(r => r[0]));
-        }
-
-        // Determine port tier based on landmass characteristics
+        // Analyze the entire island to determine available resources
+        let landmassInfo = { size: 0, biomes: {}, diversity: 0, richness: 0 };
         let tier = 'small';
 
         // Check if mapGenerator has analyzeLandmass method
         if (mapGenerator.analyzeLandmass) {
-            const landmassInfo = mapGenerator.analyzeLandmass(port.x, port.y);
+            landmassInfo = mapGenerator.analyzeLandmass(port.x, port.y);
 
-            // Calculate composite score
-            // Size: 0-150 tiles (normalize to 0-1)
-            // Diversity: 0-10 biomes (normalize to 0-1)
-            // Richness: 1-3 average (normalize to 0-1)
+            // Calculate composite score for tier determination
             const sizeScore = Math.min(landmassInfo.size / 150, 1.0);
             const diversityScore = Math.min(landmassInfo.diversity / 8, 1.0);
             const richnessScore = Math.min((landmassInfo.richness - 1) / 2, 1.0);
@@ -154,13 +95,13 @@ class EconomyManager {
 
             // Assign tier based on composite score
             if (compositeScore >= 0.75) {
-                tier = 'capital';  // Large, diverse, rich islands
+                tier = 'capital';
             } else if (compositeScore >= 0.5) {
-                tier = 'large';    // Medium-large islands with good diversity
+                tier = 'large';
             } else if (compositeScore >= 0.25) {
-                tier = 'medium';   // Medium islands or less diverse
+                tier = 'medium';
             } else {
-                tier = 'small';    // Small islands or poor diversity
+                tier = 'small';
             }
         } else {
             // Fallback: Use seeded random for variety (old method)
@@ -173,13 +114,68 @@ class EconomyManager {
             else tier = 'small';
         }
 
-        const tierConfig = this.PORT_TIERS[tier];
+        // Calculate resource availability from actual island biomes
+        const resourceAvailability = {};
+        const allResources = Object.keys(this.BASE_PRICES);
 
-        // Initialize supply levels (1.0 = equilibrium)
-        const supplyLevels = {};
-        Object.keys(this.BASE_PRICES).forEach(resource => {
-            supplyLevels[resource] = 1.0;
+        // Initialize all resources as unavailable (0)
+        allResources.forEach(resource => {
+            resourceAvailability[resource] = 0;
         });
+
+        // Calculate availability based on biome tile counts
+        for (const [biome, count] of Object.entries(landmassInfo.biomes)) {
+            const resources = this.BIOME_RESOURCES[biome] || [];
+            resources.forEach(resource => {
+                resourceAvailability[resource] += count;
+            });
+        }
+
+        // Filter to only resources that exist on this island
+        const availableResources = Object.entries(resourceAvailability)
+            .filter(([resource, count]) => count > 0)
+            .sort((a, b) => b[1] - a[1]); // Sort by abundance (most to least)
+
+        // Determine produces (abundant resources) and consumes (needed resources)
+        const produces = [];
+        const consumes = [];
+        const resourceSupply = {}; // Track supply level for each resource
+
+        // Abundant resources (top 30%) = produces (exports)
+        const produceCount = Math.max(1, Math.floor(availableResources.length * 0.3));
+        if (availableResources.length > 0) {
+            produces.push(...availableResources.slice(0, produceCount).map(r => r[0]));
+
+            // Mark abundant resources with high supply (>1.0)
+            for (let i = 0; i < produceCount; i++) {
+                const [resource, count] = availableResources[i];
+                // Supply level based on tile count: 1.0 + (count / island_size)
+                resourceSupply[resource] = 1.0 + (count / Math.max(landmassInfo.size, 1));
+            }
+        }
+
+        // Missing/scarce resources = consumes (imports)
+        // Get all resources not on the island OR only present in small quantities
+        const islandSize = landmassInfo.size || 1;
+        allResources.forEach(resource => {
+            const count = resourceAvailability[resource];
+            const proportion = count / islandSize;
+
+            if (count === 0) {
+                // Resource doesn't exist on island - high demand
+                consumes.push(resource);
+                resourceSupply[resource] = 0; // No supply
+            } else if (proportion < 0.1 && !produces.includes(resource)) {
+                // Scarce resource (< 10% of island) - moderate demand
+                consumes.push(resource);
+                resourceSupply[resource] = 0.3 + (proportion * 5); // 0.3 to 0.8 supply
+            } else if (!produces.includes(resource)) {
+                // Available but not abundant - normal supply
+                resourceSupply[resource] = 0.8 + (proportion * 2); // 0.8 to ~1.2
+            }
+        });
+
+        const tierConfig = this.PORT_TIERS[tier];
 
         return {
             produces: produces,
@@ -190,10 +186,12 @@ class EconomyManager {
             gold: tierConfig.goldPool,
             maxGold: tierConfig.goldPool,
             goldRegenRate: tierConfig.goldRegen,
-            supplyLevels: supplyLevels,
+            supplyLevels: resourceSupply, // Use calculated supply based on island resources
             tier: tier,
             lastTrade: Date.now(),
-            totalTradesCount: 0
+            totalTradesCount: 0,
+            // Store resource availability for reference
+            resourceAvailability: resourceAvailability
         };
     }
 
@@ -216,10 +214,11 @@ class EconomyManager {
 
         // 2. Supply level modifier
         const supply = port.economy.supplyLevels[resource] || 1.0;
-        // High supply (>1.0) = more expensive to buy (scarcity for merchant)
-        // Low supply (<1.0) = cheaper to buy (abundant for merchant)
-        const supplyMod = Math.max(0.5, Math.min(1.5,
-            0.8 + (supply - 1.0) * 0.7
+        // High supply (>1.0) = cheaper to buy (port has surplus from abundant island resources)
+        // Low supply (<1.0) = more expensive to buy (scarce on island, port must import)
+        // supply=0 means resource doesn't exist on island at all
+        const supplyMod = Math.max(0.5, Math.min(2.0,
+            1.5 - (supply * 0.5) // Inverted: more supply = lower multiplier
         ));
 
         // 3. Port tier variance (random fluctuation)
@@ -256,10 +255,11 @@ class EconomyManager {
 
         // 2. Demand modifier (inverse of supply for buying)
         const supply = port.economy.supplyLevels[resource] || 1.0;
-        // High supply (>1.0) = low demand = lower sell price
-        // Low supply (<1.0) = high demand = higher sell price
-        const demandMod = Math.max(0.5, Math.min(1.5,
-            1.2 - (supply - 1.0) * 0.7
+        // High supply (>1.0) = low demand = lower sell price (port already has lots)
+        // Low supply (<1.0) = high demand = higher sell price (port needs to import)
+        // supply=0 means port desperately needs this resource
+        const demandMod = Math.max(0.5, Math.min(2.0,
+            0.5 + (1.0 - supply) * 0.8 // Inverted: less supply = higher multiplier
         ));
 
         // 3. Port tier variance
