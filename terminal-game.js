@@ -7,6 +7,7 @@ const ResourceManager = require('./resource-manager');
 const PlayerInventory = require('./player-inventory');
 const EconomyManager = require('./economy');
 const WeatherManager = require('./weather');
+const FogOfWar = require('./fog');
 
 // Seeded random number generator for deterministic procedural generation
 class SeededRandom {
@@ -361,6 +362,23 @@ class TerminalMapGenerator {
             return biomeInfo.walkable;
         }
     }
+
+    clearVisibility() {
+        // Mark all tiles as not currently visible (but keep explored state)
+        for (const [key, tile] of this.map.entries()) {
+            tile.visible = false;
+        }
+    }
+
+    setVisibility(x, y, visible) {
+        const tile = this.generateChunkAt(x, y);
+        if (tile) {
+            tile.visible = visible;
+            if (visible) {
+                tile.explored = true; // Mark as explored when seen
+            }
+        }
+    }
 }
 
 class TerminalPlayer {
@@ -617,6 +635,10 @@ class TerminalGame {
         this.weatherManager.initializeNoise();
         this.entityManager = new TerminalEntityManager(this.mapGenerator, this.economyManager);
 
+        // Initialize fog of war system
+        this.fogOfWar = new FogOfWar(this.mapGenerator);
+        this.fogOfWar.setWeatherManager(this.weatherManager);
+
         this.player = null;
         this.running = false;
         this.turnCount = 0;
@@ -688,6 +710,9 @@ class TerminalGame {
         // Generate initial weather
         this.weatherManager.generateWeather(this.player.x, this.player.y);
 
+        // Initialize fog of war visibility
+        this.fogOfWar.updateVisibility(this.player.x, this.player.y);
+
         this.running = true;
         this.addMessage('Welcome to Pirate Sea! Use WASD to move, B to board/disembark, Q to quit.');
         this.addMessage('Press G to gather resources, I to view inventory, T to trade, R to repair at ports.');
@@ -734,6 +759,13 @@ class TerminalGame {
 
         // Update game state
         this.turnCount++;
+
+        // Update time of day (advances by 6 minutes per turn)
+        this.fogOfWar.updateTimeOfDay(0.1);
+
+        // Update fog of war based on player position (takes weather & time into account)
+        this.fogOfWar.updateVisibility(this.player.x, this.player.y);
+
         this.weatherManager.updateWeather(this.player.x, this.player.y);
         this.applyWeatherEffects();
         this.checkWeatherWarnings();
@@ -1148,17 +1180,27 @@ class TerminalGame {
                 const tileData = visibleTiles.find(t => t.screenX === x && t.screenY === y);
 
                 if (tileData) {
-                    // Check if player is at this position
-                    if (tileData.worldX === this.player.x && tileData.worldY === this.player.y) {
+                    // Check fog of war visibility state
+                    const visibilityState = this.fogOfWar.getTileVisibilityState(tileData.worldX, tileData.worldY);
+
+                    if (visibilityState === 'hidden') {
+                        // Tile has never been explored - show as blank
+                        line += ' ';
+                    } else if (tileData.worldX === this.player.x && tileData.worldY === this.player.y) {
+                        // Player is always visible at their position
                         line += `\x1b[91m${this.player.getIcon()}\x1b[0m`;
                     } else {
-                        // Check if there's weather at this position
+                        const isVisible = visibilityState === 'visible';
+                        const isExplored = visibilityState === 'explored';
+
+                        // Check if there's weather at this position (only show if visible)
                         const weather = this.weatherManager.getWeatherAt(tileData.worldX, tileData.worldY);
                         const hasWeather = weather && weather.type !== 'clear';
 
-                        // Check if there's an entity at this position
+                        // Check if there's an entity at this position (only show if visible)
                         const entity = this.entityManager.getEntityAt(tileData.worldX, tileData.worldY);
-                        if (entity) {
+
+                        if (entity && isVisible) {
                             // Use dynamic icon/color for ships based on durability
                             let char, color;
                             if (entity.type === 'ship' && entity.durability) {
@@ -1170,11 +1212,11 @@ class TerminalGame {
                                 color = entityInfo.color;
                             }
                             line += `${color}${char}\x1b[0m`;
-                        } else if (hasWeather) {
-                            // Show weather overlay if no entity
+                        } else if (hasWeather && isVisible) {
+                            // Show weather overlay if no entity (only if visible)
                             const weatherType = this.weatherManager.WEATHER_TYPES[weather.type];
                             if (weatherType && weatherType.char) {
-                                // Convert hex color to ANSI (approximate)
+                                // Convert hex color to ANSI
                                 const ansiColor = this.hexToAnsi(weatherType.color);
                                 line += `${ansiColor}${weatherType.char}\x1b[0m`;
                             } else {
@@ -1185,17 +1227,19 @@ class TerminalGame {
                                     tileData.tile.biome,
                                     this.resourceManager
                                 );
-                                line += `${glyphInfo.color}${glyphInfo.char}\x1b[0m`;
+                                const finalColor = isExplored ? this.dimColor(glyphInfo.color) : glyphInfo.color;
+                                line += `${finalColor}${glyphInfo.char}\x1b[0m`;
                             }
                         } else {
-                            // Use resource glyph system if available
+                            // Show terrain (dimmed if only explored, not visible)
                             const glyphInfo = this.mapGenerator.generateResourceGlyph(
                                 tileData.worldX,
                                 tileData.worldY,
                                 tileData.tile.biome,
                                 this.resourceManager
                             );
-                            line += `${glyphInfo.color}${glyphInfo.char}\x1b[0m`;
+                            const finalColor = isExplored ? this.dimColor(glyphInfo.color) : glyphInfo.color;
+                            line += `${finalColor}${glyphInfo.char}\x1b[0m`;
                         }
                     }
                 } else {
@@ -1206,7 +1250,14 @@ class TerminalGame {
         }
 
         console.log(display);
+
+        // Display status with time of day and visibility info
+        const timeStr = this.fogOfWar.getTimeOfDayString();
+        const timePeriod = this.fogOfWar.getTimeOfDayPeriod();
+        const viewRadius = this.fogOfWar.getViewRadius();
+
         console.log(`\nPosition: (${this.player.x}, ${this.player.y}) | Mode: ${this.player.mode} | Gold: ${this.player.gold}g`);
+        console.log(`Time: ${timeStr} (${timePeriod}) | Visibility: ${viewRadius} tiles`);
 
         // Show ship HP if player has a ship
         if (this.player.shipDurability) {
@@ -1246,6 +1297,26 @@ class TerminalGame {
         };
 
         return colorMap[hexColor] || '\x1b[37m';
+    }
+
+    dimColor(ansiColor) {
+        // Dim ANSI colors for explored-but-not-visible tiles
+        // Convert bright colors to dark equivalents
+        const dimMap = {
+            '\x1b[34m': '\x1b[90m',   // Blue → Dark gray
+            '\x1b[33m': '\x1b[90m',   // Yellow → Dark gray
+            '\x1b[31m': '\x1b[90m',   // Red → Dark gray
+            '\x1b[91m': '\x1b[90m',   // Bright red → Dark gray
+            '\x1b[32m': '\x1b[90m',   // Green → Dark gray
+            '\x1b[92m': '\x1b[90m',   // Bright green → Dark gray
+            '\x1b[36m': '\x1b[90m',   // Cyan → Dark gray
+            '\x1b[35m': '\x1b[90m',   // Magenta → Dark gray
+            '\x1b[37m': '\x1b[90m',   // White → Dark gray
+            '\x1b[93m': '\x1b[90m',   // Bright yellow → Dark gray
+            '\x1b[97m': '\x1b[90m'    // Bright white → Dark gray
+        };
+
+        return dimMap[ansiColor] || '\x1b[90m'; // Default to dark gray
     }
 
     addMessage(message) {

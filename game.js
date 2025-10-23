@@ -42,7 +42,10 @@ class PirateSeaGame {
             this.entityManager = new EntityManager(this.mapGenerator, this.economyManager);
             this.player = new Player(this.mapGenerator);
             this.fogOfWar = new FogOfWar(this.mapGenerator);
-            
+
+            // Link weather manager to fog of war for visibility calculations
+            this.fogOfWar.setWeatherManager(this.weatherManager);
+
             this.uiManager = new UIManager(this);
             
             // Initialize display
@@ -82,7 +85,10 @@ class PirateSeaGame {
 
         this.turnCount++;
 
-        // Update fog of war based on player position
+        // Update time of day (advances by 6 minutes per turn)
+        this.fogOfWar.updateTimeOfDay(0.1);
+
+        // Update fog of war based on player position (takes weather & time into account)
         this.fogOfWar.updateVisibility(this.player.x, this.player.y);
 
         // Check for entity interactions at player position
