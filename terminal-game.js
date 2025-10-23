@@ -6,6 +6,7 @@ const ROT = require('rot-js');
 const ResourceManager = require('./resource-manager');
 const PlayerInventory = require('./player-inventory');
 const EconomyManager = require('./economy');
+const WeatherManager = require('./weather');
 
 // Seeded random number generator for deterministic procedural generation
 class SeededRandom {
@@ -612,14 +613,19 @@ class TerminalGame {
 
         // Initialize economy system
         this.economyManager = new EconomyManager(this.mapGenerator.seededRandom);
+        this.weatherManager = new WeatherManager(this.mapGenerator.seededRandom);
+        this.weatherManager.initializeNoise();
         this.entityManager = new TerminalEntityManager(this.mapGenerator, this.economyManager);
 
         this.player = null;
         this.running = false;
+        this.turnCount = 0;
         this.messageLog = [];
         this.showInventory = false;
         this.showTrading = false;
         this.currentTradingPort = null;
+        this.criticalWarningShown = false;
+        this.lastWeatherWarning = null;
 
         // Initialize resource system
         this.resourceManager = null;
@@ -679,6 +685,9 @@ class TerminalGame {
         this.entityManager.spawnPlayerStartingShip(this.player.x, this.player.y);
         this.entityManager.spawnPorts(this.player.x, this.player.y, 10);
 
+        // Generate initial weather
+        this.weatherManager.generateWeather(this.player.x, this.player.y);
+
         this.running = true;
         this.addMessage('Welcome to Pirate Sea! Use WASD to move, B to board/disembark, Q to quit.');
         this.addMessage('Press G to gather resources, I to view inventory, T to trade, R to repair at ports.');
@@ -726,6 +735,12 @@ class TerminalGame {
                 this.damageShip(15);
                 break;
         }
+
+        // Update game state
+        this.turnCount++;
+        this.weatherManager.updateWeather(this.player.x, this.player.y);
+        this.applyWeatherEffects();
+        this.checkWeatherWarnings();
 
         this.render();
     }
@@ -969,6 +984,51 @@ class TerminalGame {
 
         // Check if ship was destroyed
         this.checkShipDestruction();
+    }
+
+    applyWeatherEffects() {
+        // Only damage ships, not players on foot
+        if (this.player.mode !== 'ship' || !this.player.shipDurability) {
+            return;
+        }
+
+        // Calculate weather damage at player position
+        const damage = this.weatherManager.calculateWeatherDamage(this.player.x, this.player.y);
+
+        if (damage > 0) {
+            this.damageShip(damage);
+
+            // Add weather-specific message
+            const weatherName = this.weatherManager.getWeatherName(this.player.x, this.player.y);
+            if (damage >= 10) {
+                this.addMessage(`🌪️ The ${weatherName} batters your ship!`);
+            }
+        }
+    }
+
+    checkWeatherWarnings() {
+        // Only warn when on ship
+        if (this.player.mode !== 'ship') {
+            return;
+        }
+
+        // Check for nearby dangerous weather
+        const nearbyWeather = this.weatherManager.findNearbyDangerousWeather(
+            this.player.x,
+            this.player.y,
+            10
+        );
+
+        if (nearbyWeather.length > 0 && !this.lastWeatherWarning) {
+            const closest = nearbyWeather[0];
+            const weatherType = closest.weather.type;
+            const direction = closest.direction;
+
+            this.addMessage(`⚠️ ${weatherType.toUpperCase()} approaching from the ${direction}!`);
+            this.lastWeatherWarning = this.turnCount;
+        } else if (nearbyWeather.length === 0) {
+            this.lastWeatherWarning = null;
+        }
     }
 
     renderTrading() {
