@@ -134,20 +134,43 @@ class EconomyManager {
             consumes.push(...sortedResources.slice(-2).map(r => r[0]));
         }
 
-        // Determine port tier using seeded random for variety
-        // Use port position as seed for deterministic but varied results
-        const portSeed = (port.x * 1000 + port.y * 1000000) ^ this.seededRandom.seed;
-        const tierRandom = Math.abs(Math.sin(portSeed)) * 100;
-
+        // Determine port tier based on landmass characteristics
         let tier = 'small';
-        if (tierRandom < 15) {
-            tier = 'capital';  // 15% chance
-        } else if (tierRandom < 40) {
-            tier = 'large';    // 25% chance
-        } else if (tierRandom < 70) {
-            tier = 'medium';   // 30% chance
+
+        // Check if mapGenerator has analyzeLandmass method
+        if (mapGenerator.analyzeLandmass) {
+            const landmassInfo = mapGenerator.analyzeLandmass(port.x, port.y);
+
+            // Calculate composite score
+            // Size: 0-150 tiles (normalize to 0-1)
+            // Diversity: 0-10 biomes (normalize to 0-1)
+            // Richness: 1-3 average (normalize to 0-1)
+            const sizeScore = Math.min(landmassInfo.size / 150, 1.0);
+            const diversityScore = Math.min(landmassInfo.diversity / 8, 1.0);
+            const richnessScore = Math.min((landmassInfo.richness - 1) / 2, 1.0);
+
+            // Weighted composite: size 50%, diversity 25%, richness 25%
+            const compositeScore = (sizeScore * 0.5) + (diversityScore * 0.25) + (richnessScore * 0.25);
+
+            // Assign tier based on composite score
+            if (compositeScore >= 0.75) {
+                tier = 'capital';  // Large, diverse, rich islands
+            } else if (compositeScore >= 0.5) {
+                tier = 'large';    // Medium-large islands with good diversity
+            } else if (compositeScore >= 0.25) {
+                tier = 'medium';   // Medium islands or less diverse
+            } else {
+                tier = 'small';    // Small islands or poor diversity
+            }
         } else {
-            tier = 'small';    // 30% chance
+            // Fallback: Use seeded random for variety (old method)
+            const portSeed = (port.x * 1000 + port.y * 1000000) ^ this.seededRandom.seed;
+            const tierRandom = Math.abs(Math.sin(portSeed)) * 100;
+
+            if (tierRandom < 15) tier = 'capital';
+            else if (tierRandom < 40) tier = 'large';
+            else if (tierRandom < 70) tier = 'medium';
+            else tier = 'small';
         }
 
         const tierConfig = this.PORT_TIERS[tier];
