@@ -548,7 +548,23 @@ class MapGenerator {
         // No suitable land found
         return null;
     }
-    
+
+    findNearestWalkableLand(startX, startY, maxRadius = 20) {
+        // Search in expanding radius for walkable land (not ocean)
+        for (let radius = 1; radius <= maxRadius; radius++) {
+            for (let angle = 0; angle < 360; angle += 30) {
+                const testX = Math.round(startX + radius * Math.cos(angle * Math.PI / 180));
+                const testY = Math.round(startY + radius * Math.sin(angle * Math.PI / 180));
+
+                const tile = this.getBiomeAt(testX, testY);
+                if (tile && this.isWalkable(testX, testY, false) && tile.biome !== 'ocean') {
+                    return { x: testX, y: testY, distance: radius };
+                }
+            }
+        }
+        return null;
+    }
+
     setVisibility(x, y, visible) {
         const tile = this.getBiomeAt(x, y);
         if (tile) {

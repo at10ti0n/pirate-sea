@@ -721,6 +721,10 @@ class TerminalGame {
             case 'r':
                 this.repairShip();
                 break;
+            case 'd':
+                // Debug: damage ship for testing
+                this.damageShip(15);
+                break;
         }
 
         this.render();
@@ -889,6 +893,82 @@ class TerminalGame {
         } else {
             this.addMessage(`Repair failed: ${result.error} (Cost: ${repairInfo.totalCost}g)`);
         }
+    }
+
+    checkShipDestruction() {
+        // Only check if player is in ship mode
+        if (this.player.mode !== 'ship' || !this.player.shipDurability) {
+            return false;
+        }
+
+        // Check if ship is destroyed
+        if (this.player.shipDurability.current <= 0) {
+            this.handleShipSinking();
+            return true;
+        }
+
+        // Warn at critical HP
+        const hpPercent = this.player.shipDurability.current / this.player.shipDurability.max;
+        if (hpPercent <= 0.2 && !this.criticalWarningShown) {
+            this.addMessage('⚠ CRITICAL: Your ship is falling apart! Seek port immediately!');
+            this.criticalWarningShown = true;
+        } else if (hpPercent > 0.2) {
+            this.criticalWarningShown = false;
+        }
+
+        return false;
+    }
+
+    handleShipSinking() {
+        this.addMessage('💀 YOUR SHIP HAS SUNK! 💀');
+        this.addMessage('You struggle to swim to the nearest shore...');
+
+        // Find nearest land
+        const nearestLand = this.findNearestLand(this.player.x, this.player.y);
+
+        if (nearestLand) {
+            this.player.x = nearestLand.x;
+            this.player.y = nearestLand.y;
+            this.player.mode = 'foot';
+            this.player.shipDurability = null;
+            this.addMessage(`You wash ashore at (${nearestLand.x}, ${nearestLand.y}), exhausted but alive.`);
+        } else {
+            // Fallback: just switch to foot mode at current location
+            this.player.mode = 'foot';
+            this.player.shipDurability = null;
+            this.addMessage('Somehow you survived and made it to shore!');
+        }
+    }
+
+    findNearestLand(startX, startY) {
+        // Search in expanding radius for walkable land
+        for (let radius = 1; radius <= 20; radius++) {
+            for (let angle = 0; angle < 360; angle += 30) {
+                const testX = Math.round(startX + radius * Math.cos(angle * Math.PI / 180));
+                const testY = Math.round(startY + radius * Math.sin(angle * Math.PI / 180));
+
+                const tile = this.mapGenerator.getBiomeAt(testX, testY);
+                if (tile && this.mapGenerator.isWalkable(testX, testY, false) && tile.biome !== 'ocean') {
+                    return { x: testX, y: testY };
+                }
+            }
+        }
+        return null;
+    }
+
+    damageShip(amount) {
+        if (this.player.mode !== 'ship' || !this.player.shipDurability) {
+            return;
+        }
+
+        this.player.shipDurability.current = Math.max(0, this.player.shipDurability.current - amount);
+        this.player.shipDurability.lastDamage = Date.now();
+
+        const condition = this.entityManager.getShipCondition({ durability: this.player.shipDurability });
+        this.addMessage(`⚓ Ship took ${amount} damage! (${this.player.shipDurability.current}/${this.player.shipDurability.max} HP - ${condition})`);
+
+        // Check if ship was destroyed
+        this.checkShipDestruction();
     }
 
     renderTrading() {

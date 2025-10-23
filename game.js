@@ -208,6 +208,70 @@ class PirateSeaGame {
         this.uiManager.showTradingScreen(port);
     }
 
+    checkShipDestruction() {
+        // Only check if player is in ship mode
+        if (this.player.mode !== 'ship' || !this.player.shipDurability) {
+            return false;
+        }
+
+        // Check if ship is destroyed
+        if (this.player.shipDurability.current <= 0) {
+            this.handleShipSinking();
+            return true;
+        }
+
+        // Warn at critical HP
+        const hpPercent = this.player.shipDurability.current / this.player.shipDurability.max;
+        if (hpPercent <= 0.2 && !this.criticalWarningShown) {
+            this.uiManager.addMessage('⚠ CRITICAL: Your ship is falling apart! Seek port immediately!');
+            this.criticalWarningShown = true;
+        } else if (hpPercent > 0.2) {
+            this.criticalWarningShown = false;
+        }
+
+        return false;
+    }
+
+    handleShipSinking() {
+        this.uiManager.addMessage('💀 YOUR SHIP HAS SUNK! 💀');
+        this.uiManager.addMessage('You struggle to swim to the nearest shore...');
+
+        // Find nearest land using map generator
+        const nearestLand = this.mapGenerator.findNearestWalkableLand(this.player.x, this.player.y, 20);
+
+        if (nearestLand) {
+            this.player.x = nearestLand.x;
+            this.player.y = nearestLand.y;
+            this.player.mode = 'foot';
+            this.player.shipDurability = null;
+            this.uiManager.addMessage(`You wash ashore at (${nearestLand.x}, ${nearestLand.y}), exhausted but alive.`);
+        } else {
+            // Fallback: just switch to foot mode at current location
+            this.player.mode = 'foot';
+            this.player.shipDurability = null;
+            this.uiManager.addMessage('Somehow you survived and made it to shore!');
+        }
+
+        // Update game state
+        this.updateGameState();
+        this.render();
+    }
+
+    damageShip(amount) {
+        if (this.player.mode !== 'ship' || !this.player.shipDurability) {
+            return;
+        }
+
+        this.player.shipDurability.current = Math.max(0, this.player.shipDurability.current - amount);
+        this.player.shipDurability.lastDamage = Date.now();
+
+        const condition = this.entityManager.getShipCondition({ durability: this.player.shipDurability });
+        this.uiManager.addMessage(`⚓ Ship took ${amount} damage! (${this.player.shipDurability.current}/${this.player.shipDurability.max} HP - ${condition})`);
+
+        // Check if ship was destroyed
+        this.checkShipDestruction();
+    }
+
     // Seed management methods
     getSeed() {
         return this.mapGenerator ? this.mapGenerator.getSeed() : this.seed;
