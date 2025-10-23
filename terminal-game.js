@@ -511,6 +511,125 @@ class TerminalEntityManager {
             treasure: { char: '$', color: '\x1b[93m' }
         };
         this.seededRandom = mapGenerator.seededRandom;
+
+        // Chunk-based spawning system
+        this.CHUNK_SIZE = 100; // Each chunk is 100x100 tiles
+        this.generatedChunks = new Set(); // Track which chunks have spawned entities
+        this.PORT_DENSITY = 0.15; // ~15% chance per suitable coastal tile in chunk
+    }
+
+    getChunkKey(x, y) {
+        const chunkX = Math.floor(x / this.CHUNK_SIZE);
+        const chunkY = Math.floor(y / this.CHUNK_SIZE);
+        return `${chunkX},${chunkY}`;
+    }
+
+    getChunkBounds(chunkX, chunkY) {
+        return {
+            minX: chunkX * this.CHUNK_SIZE,
+            maxX: (chunkX + 1) * this.CHUNK_SIZE,
+            minY: chunkY * this.CHUNK_SIZE,
+            maxY: (chunkY + 1) * this.CHUNK_SIZE
+        };
+    }
+
+    // Generate ports in a specific chunk (deterministic based on chunk coordinates)
+    generatePortsInChunk(chunkX, chunkY) {
+        const chunkKey = `${chunkX},${chunkY}`;
+
+        // Skip if already generated
+        if (this.generatedChunks.has(chunkKey)) {
+            return 0;
+        }
+
+        this.generatedChunks.add(chunkKey);
+
+        const bounds = this.getChunkBounds(chunkX, chunkY);
+        let portsSpawned = 0;
+
+        // Create deterministic random seed from chunk coordinates
+        const chunkSeed = (chunkX * 73856093) ^ (chunkY * 19349663);
+        const chunkRandom = () => {
+            const x = Math.sin(chunkSeed + portsSpawned * 12345) * 10000;
+            return x - Math.floor(x);
+        };
+
+        // Helper function to check if a position is coastal
+        const isCoastal = (x, y) => {
+            const tile = this.mapGenerator.getBiomeAt(x, y);
+            if (!tile || !this.mapGenerator.isWalkable(x, y, false) ||
+                tile.biome === 'ocean' || tile.biome === 'mountain') {
+                return false;
+            }
+
+            // Check if adjacent to ocean
+            const directions = [
+                [0, 1], [0, -1], [1, 0], [-1, 0],
+                [1, 1], [1, -1], [-1, 1], [-1, -1]
+            ];
+
+            for (const [dx, dy] of directions) {
+                const adjacentTile = this.mapGenerator.getBiomeAt(x + dx, y + dy);
+                if (adjacentTile && adjacentTile.biome === 'ocean') {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        // Scan chunk in a grid pattern for coastal locations
+        const gridSize = 10; // Check every 10 tiles
+        const coastalCandidates = [];
+
+        for (let x = bounds.minX; x < bounds.maxX; x += gridSize) {
+            for (let y = bounds.minY; y < bounds.maxY; y += gridSize) {
+                if (isCoastal(x, y) && !this.isPositionOccupied(x, y)) {
+                    coastalCandidates.push({ x, y });
+                }
+            }
+        }
+
+        // Spawn ports from candidates using density
+        for (const candidate of coastalCandidates) {
+            if (chunkRandom() < this.PORT_DENSITY) {
+                const port = {
+                    type: 'port',
+                    x: candidate.x,
+                    y: candidate.y,
+                    char: 'P',
+                    color: '\x1b[31m'
+                };
+
+                // Initialize economy data
+                if (this.economyManager) {
+                    port.economy = this.economyManager.determinePortEconomy(port, this.mapGenerator);
+                }
+
+                this.addEntity(port);
+                portsSpawned++;
+            }
+        }
+
+        return portsSpawned;
+    }
+
+    // Check and generate entities around player position
+    updateNearbyChunks(playerX, playerY) {
+        const playerChunkX = Math.floor(playerX / this.CHUNK_SIZE);
+        const playerChunkY = Math.floor(playerY / this.CHUNK_SIZE);
+
+        let totalSpawned = 0;
+
+        // Generate in 3x3 grid of chunks around player
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                const chunkX = playerChunkX + dx;
+                const chunkY = playerChunkY + dy;
+                totalSpawned += this.generatePortsInChunk(chunkX, chunkY);
+            }
+        }
+
+        return totalSpawned;
     }
 
 addEntity(entity) {
@@ -773,7 +892,10 @@ class TerminalGame {
 
         // Spawn entities
         this.entityManager.spawnPlayerStartingShip(this.player.x, this.player.y);
-        this.entityManager.spawnPorts(this.player.x, this.player.y, 10);
+
+        // Generate ports in nearby chunks (dynamic system)
+        const spawned = this.entityManager.updateNearbyChunks(this.player.x, this.player.y);
+        console.log(`Generated ${spawned} ports in nearby chunks`);
 
         // Generate initial weather
         this.weatherManager.generateWeather(this.player.x, this.player.y);
@@ -827,6 +949,12 @@ class TerminalGame {
 
         // Update game state
         this.turnCount++;
+
+        // Check for new chunks and generate ports
+        const newPorts = this.entityManager.updateNearbyChunks(this.player.x, this.player.y);
+        if (newPorts > 0) {
+            this.addMessage(`Discovered ${newPorts} new port${newPorts > 1 ? 's' : ''} nearby!`);
+        }
 
         // Update time of day (advances by 6 minutes per turn)
         this.fogOfWar.updateTimeOfDay(0.1);
