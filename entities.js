@@ -1,4 +1,14 @@
 // Entity management system for ships, ports, and treasure
+// Import NameGenerator if in Node.js environment
+let NameGenerator;
+if (typeof require !== 'undefined') {
+    try {
+        NameGenerator = require('./nameGenerator.js');
+    } catch (e) {
+        // NameGenerator not available - names will be skipped
+    }
+}
+
 class EntityManager {
     constructor(mapGenerator, economyManager = null) {
         this.mapGenerator = mapGenerator;
@@ -14,6 +24,14 @@ class EntityManager {
 
         // Economy manager for trading system
         this.economyManager = economyManager;
+
+        // Name generator for islands and ports
+        if (typeof NameGenerator !== 'undefined') {
+            this.nameGenerator = new NameGenerator(mapGenerator.getSeed());
+        }
+
+        // Track discovered islands to avoid duplicate port spawning
+        this.discoveredIslands = new Map(); // Key: 'x,y' (representative tile), Value: island data
     }
     
     addEntity(entity) {
@@ -173,23 +191,159 @@ class EntityManager {
         return false;
     }
     
-    spawnPorts(centerX, centerY) {
-        const portCount = 15; // More ports for increased land in 80% water world
-        const walkableTiles = this.getAvailableWalkableTiles(centerX, centerY);
+    // Island-aware port spawning system
+    spawnPorts(centerX, centerY, radius = 60) {
+        console.log('Starting island-aware port spawning...');
 
-        for (let i = 0; i < portCount && walkableTiles.length > 0; i++) {
-            const randomIndex = Math.floor(this.seededRandom.random() * walkableTiles.length);
-            const tile = walkableTiles[randomIndex];
+        // Scan area for land tiles
+        const scanRadius = radius;
+        const landTiles = [];
+
+        for (let y = centerY - scanRadius; y < centerY + scanRadius; y++) {
+            for (let x = centerX - scanRadius; x < centerX + scanRadius; x++) {
+                const tile = this.mapGenerator.getBiomeAt(x, y);
+                if (tile && tile.biome !== 'ocean') {
+                    landTiles.push({ x, y });
+                }
+            }
+        }
+
+        console.log(`Found ${landTiles.length} land tiles to analyze`);
+
+        // Discover and process islands
+        const processedTiles = new Set();
+        let totalPortsSpawned = 0;
+        let islandsProcessed = 0;
+
+        for (const landTile of landTiles) {
+            const key = `${landTile.x},${landTile.y}`;
+
+            // Skip if already processed as part of another island
+            if (processedTiles.has(key)) continue;
+
+            // Discover this island
+            const island = this.discoverIsland(landTile.x, landTile.y, processedTiles);
+
+            if (island && island.size >= 10) { // Only spawn ports on islands with 10+ tiles
+                islandsProcessed++;
+                const portsSpawned = this.spawnPortsOnIsland(island);
+                totalPortsSpawned += portsSpawned;
+
+                console.log(`Island "${island.name}" (${island.size} tiles): spawned ${portsSpawned} ports`);
+            }
+        }
+
+        console.log(`Processed ${islandsProcessed} islands, spawned ${totalPortsSpawned} total ports`);
+    }
+
+    // Discover an island starting from a land tile
+    discoverIsland(startX, startY, globalProcessed = new Set()) {
+        const tile = this.mapGenerator.getBiomeAt(startX, startY);
+        if (!tile || tile.biome === 'ocean') return null;
+
+        // Use analyzeLandmass to get island data
+        const landmassData = this.mapGenerator.analyzeLandmass(startX, startY, 500);
+
+        if (landmassData.size === 0) return null;
+
+        // Mark all tiles as processed using flood fill
+        const visited = new Set();
+        const queue = [[startX, startY]];
+        const islandTiles = [];
+
+        while (queue.length > 0 && visited.size < landmassData.size + 100) {
+            const [x, y] = queue.shift();
+            const key = `${x},${y}`;
+
+            if (visited.has(key) || globalProcessed.has(key)) continue;
+
+            const currentTile = this.mapGenerator.getBiomeAt(x, y);
+            if (!currentTile || currentTile.biome === 'ocean') continue;
+
+            visited.add(key);
+            globalProcessed.add(key);
+            islandTiles.push({ x, y, biome: currentTile.biome });
+
+            // Add adjacent tiles
+            const directions = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+            for (const [dx, dy] of directions) {
+                const newKey = `${x + dx},${y + dy}`;
+                if (!visited.has(newKey) && !globalProcessed.has(newKey)) {
+                    queue.push([x + dx, y + dy]);
+                }
+            }
+        }
+
+        // Generate island name
+        const islandName = this.nameGenerator
+            ? this.nameGenerator.generateIslandName(startX, startY, landmassData.size)
+            : `Island_${startX}_${startY}`;
+
+        const island = {
+            centerX: startX,
+            centerY: startY,
+            size: landmassData.size,
+            name: islandName,
+            tiles: islandTiles,
+            biomes: landmassData.biomes,
+            diversity: landmassData.diversity,
+            richness: landmassData.richness
+        };
+
+        // Store in discovered islands
+        this.discoveredIslands.set(`${startX},${startY}`, island);
+
+        return island;
+    }
+
+    // Determine how many ports to spawn on an island based on size
+    getPortCountForIsland(size) {
+        if (size < 10) return 0;           // Tiny: no ports
+        if (size < 30) return 1;           // Small: 1 port
+        if (size < 80) return 1 + Math.floor(Math.random() * 2); // Medium: 1-2 ports
+        if (size < 150) return 2 + Math.floor(Math.random() * 3); // Large: 2-4 ports
+        if (size < 300) return 3 + Math.floor(Math.random() * 4); // Huge: 3-6 ports
+        return 5 + Math.floor(Math.random() * 4); // Massive: 5-8 ports
+    }
+
+    // Spawn ports on a specific island
+    spawnPortsOnIsland(island) {
+        const portCount = this.getPortCountForIsland(island.size);
+        if (portCount === 0) return 0;
+
+        // Find coastal tiles (land tiles adjacent to ocean)
+        const coastalTiles = this.findCoastalTiles(island);
+
+        if (coastalTiles.length === 0) {
+            console.log(`Warning: Island "${island.name}" has no coastal tiles!`);
+            return 0;
+        }
+
+        // Distribute ports around the coastline
+        const portLocations = this.distributePortsAlongCoast(coastalTiles, portCount);
+
+        let portsSpawned = 0;
+        for (const location of portLocations) {
+            if (this.isPositionOccupied(location.x, location.y)) continue;
+
+            // Generate port name
+            const portName = this.nameGenerator
+                ? this.nameGenerator.generatePortName(location.x, location.y, island.name)
+                : `Port_${location.x}_${location.y}`;
 
             const port = {
                 type: 'port',
-                x: tile.x,
-                y: tile.y,
+                x: location.x,
+                y: location.y,
                 char: 'P',
                 color: '#e74c3c',
                 hasShips: true,
-                shipsAvailable: this.seededRandom.randomInt(1, 3), // 1-3 ships per port
-                lastVisited: null
+                shipsAvailable: this.seededRandom.nextInt(1, 3),
+                lastVisited: null,
+                // Island and name data
+                islandName: island.name,
+                portName: portName,
+                islandSize: island.size
             };
 
             // Initialize economy data if economy manager is available
@@ -198,10 +352,65 @@ class EntityManager {
             }
 
             this.addEntity(port);
-            walkableTiles.splice(randomIndex, 1); // Remove used tile
+            portsSpawned++;
         }
 
-        console.log(`Spawned ${Math.min(portCount, walkableTiles.length)} ports`);
+        return portsSpawned;
+    }
+
+    // Find all coastal tiles on an island (land tiles adjacent to ocean)
+    findCoastalTiles(island) {
+        const coastalTiles = [];
+        const checkedTiles = new Set();
+
+        for (const tile of island.tiles) {
+            const key = `${tile.x},${tile.y}`;
+            if (checkedTiles.has(key)) continue;
+            checkedTiles.add(key);
+
+            // Check if this land tile is adjacent to ocean
+            let adjacentToOcean = false;
+            const directions = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+
+            for (const [dx, dy] of directions) {
+                const neighborTile = this.mapGenerator.getBiomeAt(tile.x + dx, tile.y + dy);
+                if (neighborTile && neighborTile.biome === 'ocean') {
+                    adjacentToOcean = true;
+                    break;
+                }
+            }
+
+            if (adjacentToOcean) {
+                // Prefer walkable tiles for ports
+                const isWalkable = this.mapGenerator.isWalkable(tile.x, tile.y, false);
+                coastalTiles.push({
+                    x: tile.x,
+                    y: tile.y,
+                    biome: tile.biome,
+                    walkable: isWalkable
+                });
+            }
+        }
+
+        // Prioritize walkable coastal tiles
+        return coastalTiles.sort((a, b) => b.walkable - a.walkable);
+    }
+
+    // Distribute ports evenly around the coastline
+    distributePortsAlongCoast(coastalTiles, portCount) {
+        if (coastalTiles.length === 0) return [];
+        if (portCount >= coastalTiles.length) return coastalTiles;
+
+        // Select evenly spaced ports around the coast
+        const portLocations = [];
+        const step = Math.floor(coastalTiles.length / portCount);
+
+        for (let i = 0; i < portCount; i++) {
+            const index = (i * step) % coastalTiles.length;
+            portLocations.push(coastalTiles[index]);
+        }
+
+        return portLocations;
     }
     
     spawnTreasure(centerX, centerY) {
