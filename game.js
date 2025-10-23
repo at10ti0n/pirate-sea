@@ -10,9 +10,11 @@ class PirateSeaGame {
         this.resourceManager = null;
         this.playerInventory = null;
         this.economyManager = null;
+        this.weatherManager = null;
         this.gameRunning = false;
         this.treasureCollected = 0;
         this.portsVisited = 0;
+        this.turnCount = 0;
     }
     
     async initialize() {
@@ -34,6 +36,8 @@ class PirateSeaGame {
             this.resourceManager = new ResourceManager(this.mapGenerator, seededRandom);
             this.playerInventory = new PlayerInventory(100);
             this.economyManager = new EconomyManager(seededRandom);
+            this.weatherManager = new WeatherManager(seededRandom);
+            this.weatherManager.initializeNoise();
 
             this.entityManager = new EntityManager(this.mapGenerator, this.economyManager);
             this.player = new Player(this.mapGenerator);
@@ -46,7 +50,10 @@ class PirateSeaGame {
             
             // Spawn entities around player
             this.entityManager.spawnEntities(this.player.x, this.player.y);
-            
+
+            // Generate initial weather
+            this.weatherManager.generateWeather(this.player.x, this.player.y);
+
             // Initial game state update
             this.updateGameState();
             
@@ -72,12 +79,21 @@ class PirateSeaGame {
     
     updateGameState() {
         if (!this.gameRunning) return;
-        
+
+        this.turnCount++;
+
         // Update fog of war based on player position
         this.fogOfWar.updateVisibility(this.player.x, this.player.y);
-        
+
         // Check for entity interactions at player position
         this.checkEntityInteractions();
+
+        // Update weather systems (every turn)
+        if (this.weatherManager) {
+            this.weatherManager.updateWeather(this.player.x, this.player.y);
+            this.applyWeatherEffects();
+            this.checkWeatherWarnings();
+        }
     }
     
     checkEntityInteractions() {
@@ -270,6 +286,51 @@ class PirateSeaGame {
 
         // Check if ship was destroyed
         this.checkShipDestruction();
+    }
+
+    applyWeatherEffects() {
+        // Only damage ships, not players on foot
+        if (this.player.mode !== 'ship' || !this.player.shipDurability) {
+            return;
+        }
+
+        // Calculate weather damage at player position
+        const damage = this.weatherManager.calculateWeatherDamage(this.player.x, this.player.y);
+
+        if (damage > 0) {
+            this.damageShip(damage);
+
+            // Add weather-specific message
+            const weatherName = this.weatherManager.getWeatherName(this.player.x, this.player.y);
+            if (damage >= 10) {
+                this.uiManager.addMessage(`🌪️ The ${weatherName} batters your ship!`);
+            }
+        }
+    }
+
+    checkWeatherWarnings() {
+        // Only warn when on ship
+        if (this.player.mode !== 'ship') {
+            return;
+        }
+
+        // Check for nearby dangerous weather
+        const nearbyWeather = this.weatherManager.findNearbyDangerousWeather(
+            this.player.x,
+            this.player.y,
+            10
+        );
+
+        if (nearbyWeather.length > 0 && !this.lastWeatherWarning) {
+            const closest = nearbyWeather[0];
+            const weatherType = closest.weather.type;
+            const direction = closest.direction;
+
+            this.uiManager.addMessage(`⚠️ ${weatherType.toUpperCase()} approaching from the ${direction}!`);
+            this.lastWeatherWarning = this.turnCount;
+        } else if (nearbyWeather.length === 0) {
+            this.lastWeatherWarning = null;
+        }
     }
 
     // Seed management methods
