@@ -1152,6 +1152,10 @@ class TerminalGame {
                     if (tileData.worldX === this.player.x && tileData.worldY === this.player.y) {
                         line += `\x1b[91m${this.player.getIcon()}\x1b[0m`;
                     } else {
+                        // Check if there's weather at this position
+                        const weather = this.weatherManager.getWeatherAt(tileData.worldX, tileData.worldY);
+                        const hasWeather = weather && weather.type !== 'clear';
+
                         // Check if there's an entity at this position
                         const entity = this.entityManager.getEntityAt(tileData.worldX, tileData.worldY);
                         if (entity) {
@@ -1166,12 +1170,29 @@ class TerminalGame {
                                 color = entityInfo.color;
                             }
                             line += `${color}${char}\x1b[0m`;
+                        } else if (hasWeather) {
+                            // Show weather overlay if no entity
+                            const weatherType = this.weatherManager.WEATHER_TYPES[weather.type];
+                            if (weatherType && weatherType.char) {
+                                // Convert hex color to ANSI (approximate)
+                                const ansiColor = this.hexToAnsi(weatherType.color);
+                                line += `${ansiColor}${weatherType.char}\x1b[0m`;
+                            } else {
+                                // Fallback to terrain
+                                const glyphInfo = this.mapGenerator.generateResourceGlyph(
+                                    tileData.worldX,
+                                    tileData.worldY,
+                                    tileData.tile.biome,
+                                    this.resourceManager
+                                );
+                                line += `${glyphInfo.color}${glyphInfo.char}\x1b[0m`;
+                            }
                         } else {
                             // Use resource glyph system if available
                             const glyphInfo = this.mapGenerator.generateResourceGlyph(
-                                tileData.worldX, 
-                                tileData.worldY, 
-                                tileData.tile.biome, 
+                                tileData.worldX,
+                                tileData.worldY,
+                                tileData.tile.biome,
                                 this.resourceManager
                             );
                             line += `${glyphInfo.color}${glyphInfo.char}\x1b[0m`;
@@ -1211,6 +1232,20 @@ class TerminalGame {
             console.log('\nMessages:');
             this.messageLog.slice(-3).forEach(msg => console.log(`  ${msg}`));
         }
+    }
+
+    hexToAnsi(hexColor) {
+        if (!hexColor) return '\x1b[37m'; // Default to white
+
+        // Simple hex to ANSI color mapping
+        const colorMap = {
+            '#b0b0b0': '\x1b[37m',   // Fog - white/light gray
+            '#6fa8dc': '\x1b[36m',   // Rain - cyan
+            '#3d5a80': '\x1b[34m',   // Storm - blue
+            '#1a1a2e': '\x1b[90m'    // Hurricane - dark gray
+        };
+
+        return colorMap[hexColor] || '\x1b[37m';
     }
 
     addMessage(message) {

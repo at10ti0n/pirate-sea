@@ -355,7 +355,10 @@ class UIManager {
         for (const tileData of visibleTiles) {
             this.renderTileAtScreen(tileData.tile, tileData.screenX, tileData.screenY, tileData.worldX, tileData.worldY);
         }
-        
+
+        // Render weather overlay
+        this.renderWeather(visibleTiles);
+
         // Render entities
         this.renderEntities();
         
@@ -429,17 +432,51 @@ class UIManager {
     renderPlayer() {
         const player = this.game.player;
         if (!player) return;
-        
+
         const playerIcon = player.getIcon();
         const playerColor = player.getMode() === 'ship' ? '#3498db' : '#e74c3c';
-        
+
         // Player is always at the center of the screen
         const centerX = Math.floor(this.game.mapGenerator.displayWidth / 2);
         const centerY = Math.floor(this.game.mapGenerator.displayHeight / 2);
-        
+
         this.display.draw(centerX, centerY, playerIcon, playerColor);
     }
-    
+
+    renderWeather(visibleTiles) {
+        if (!this.game.weatherManager) return;
+
+        for (const tileData of visibleTiles) {
+            // Check if there's weather at this world position
+            const weather = this.game.weatherManager.getWeatherAt(tileData.worldX, tileData.worldY);
+
+            if (weather && weather.type !== 'clear') {
+                const weatherType = this.game.weatherManager.WEATHER_TYPES[weather.type];
+                if (!weatherType || !weatherType.char) continue;
+
+                // Check visibility state - only show in visible/explored areas
+                const visibilityState = this.game.fogOfWar.getTileVisibilityState(tileData.worldX, tileData.worldY);
+                if (visibilityState === 'hidden') continue;
+
+                // Draw weather overlay with semi-transparency effect
+                // For fog of war explored areas, dim the weather slightly
+                let weatherColor = weatherType.color;
+                if (visibilityState === 'explored') {
+                    weatherColor = this.dimColor(weatherColor);
+                }
+
+                this.display.draw(tileData.screenX, tileData.screenY, weatherType.char, weatherColor);
+            }
+        }
+    }
+
+    dimColor(color) {
+        // Simple dimming for explored areas
+        if (!color) return color;
+        // Reduce brightness by making it darker
+        return color + '80'; // Add alpha for transparency if browser supports it
+    }
+
     updateActionButtons() {
         const boardBtn = document.getElementById('board-btn');
         const unboardBtn = document.getElementById('unboard-btn');
