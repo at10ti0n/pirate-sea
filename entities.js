@@ -1,6 +1,6 @@
 // Entity management system for ships, ports, and treasure
 class EntityManager {
-    constructor(mapGenerator) {
+    constructor(mapGenerator, economyManager = null) {
         this.mapGenerator = mapGenerator;
         this.entities = new Map(); // Key: 'x,y', Value: entity object
         this.entityTypes = {
@@ -8,9 +8,12 @@ class EntityManager {
             port: { char: 'P', color: '#e74c3c' },
             treasure: { char: '$', color: '#f1c40f' }
         };
-        
+
         // Use the same seeded random as the map generator
         this.seededRandom = mapGenerator.seededRandom;
+
+        // Economy manager for trading system
+        this.economyManager = economyManager;
     }
     
     addEntity(entity) {
@@ -38,6 +41,52 @@ class EntityManager {
     
     isPositionOccupied(x, y) {
         return this.entities.has(`${x},${y}`);
+    }
+
+    // Create durability data for a ship
+    createShipDurability(maxHull = 100) {
+        return {
+            current: maxHull,
+            max: maxHull,
+            lastDamage: null
+        };
+    }
+
+    // Get ship condition based on durability
+    getShipCondition(ship) {
+        if (!ship.durability) return 'unknown';
+        const percent = ship.durability.current / ship.durability.max;
+        if (percent >= 0.9) return 'excellent';
+        if (percent >= 0.6) return 'good';
+        if (percent >= 0.3) return 'damaged';
+        if (percent > 0) return 'critical';
+        return 'destroyed';
+    }
+
+    // Get ship icon based on condition
+    getShipIcon(ship) {
+        const condition = this.getShipCondition(ship);
+        const icons = {
+            excellent: 'S',
+            good: 'S',
+            damaged: 's',
+            critical: 's',
+            destroyed: 'x'
+        };
+        return icons[condition] || 'S';
+    }
+
+    // Get ship color based on condition
+    getShipColor(ship) {
+        const condition = this.getShipCondition(ship);
+        const colors = {
+            excellent: '#8b4513',
+            good: '#8b4513',
+            damaged: '#d4a574',
+            critical: '#ff6b6b',
+            destroyed: '#666666'
+        };
+        return colors[condition] || '#8b4513';
     }
     
     spawnEntities(playerX = 0, playerY = 0) {
@@ -79,7 +128,8 @@ class EntityManager {
                     char: 'S',
                     color: '#8b4513',
                     isStartingShip: true,
-                    playerSpawn: true
+                    playerSpawn: true,
+                    durability: this.createShipDurability(100)
                 };
                 
                 this.addEntity(startingShip);
@@ -109,7 +159,8 @@ class EntityManager {
                     char: 'S',
                     color: '#8b4513',
                     isStartingShip: true,
-                    playerSpawn: true
+                    playerSpawn: true,
+                    durability: this.createShipDurability(100)
                 };
                 
                 this.addEntity(startingShip);
@@ -125,11 +176,11 @@ class EntityManager {
     spawnPorts(centerX, centerY) {
         const portCount = 15; // More ports for increased land in 80% water world
         const walkableTiles = this.getAvailableWalkableTiles(centerX, centerY);
-        
+
         for (let i = 0; i < portCount && walkableTiles.length > 0; i++) {
             const randomIndex = Math.floor(this.seededRandom.random() * walkableTiles.length);
             const tile = walkableTiles[randomIndex];
-            
+
             const port = {
                 type: 'port',
                 x: tile.x,
@@ -140,11 +191,16 @@ class EntityManager {
                 shipsAvailable: this.seededRandom.randomInt(1, 3), // 1-3 ships per port
                 lastVisited: null
             };
-            
+
+            // Initialize economy data if economy manager is available
+            if (this.economyManager) {
+                port.economy = this.economyManager.determinePortEconomy(port, this.mapGenerator);
+            }
+
             this.addEntity(port);
             walkableTiles.splice(randomIndex, 1); // Remove used tile
         }
-        
+
         console.log(`Spawned ${Math.min(portCount, walkableTiles.length)} ports`);
     }
     
@@ -184,7 +240,8 @@ class EntityManager {
                 x: tile.x,
                 y: tile.y,
                 char: 'S',
-                color: '#8b4513'
+                color: '#8b4513',
+                durability: this.createShipDurability(100)
             };
             
             this.addEntity(ship);
@@ -304,7 +361,8 @@ class EntityManager {
                     fromPort: true,
                     portX: port.x,
                     portY: port.y,
-                    portAccessible: true // Flag indicating this ship has good port access
+                    portAccessible: true, // Flag indicating this ship has good port access
+                    durability: this.createShipDurability(100)
                 };
                 this.addEntity(ship);
                 spawned++;

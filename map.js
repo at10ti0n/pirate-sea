@@ -335,6 +335,74 @@ class MapGenerator {
         return size;
     }
     
+    // Analyze landmass for port tier determination
+    analyzeLandmass(startX, startY, maxSize = 150) {
+        const tile = this.getBiomeAt(startX, startY);
+        if (!tile || tile.biome === 'ocean') {
+            return { size: 0, biomes: {}, diversity: 0, richness: 0 };
+        }
+
+        const visited = new Set();
+        const biomeCount = {};
+        const queue = [[startX, startY]];
+
+        // Biome richness scores (more valuable biomes = higher scores)
+        const biomeValue = {
+            forest: 3,
+            jungle: 3,
+            tropical: 3,
+            beach: 2,
+            savanna: 2,
+            taiga: 2,
+            desert: 1,
+            swamp: 1,
+            mountain: 1,
+            snow: 1
+        };
+
+        while (queue.length > 0 && visited.size < maxSize) {
+            const [x, y] = queue.shift();
+            const key = `${x},${y}`;
+
+            if (visited.has(key)) continue;
+
+            const currentTile = this.getBiomeAt(x, y);
+            if (!currentTile || currentTile.biome === 'ocean') continue;
+
+            visited.add(key);
+
+            // Count biome types
+            const biome = currentTile.biome;
+            biomeCount[biome] = (biomeCount[biome] || 0) + 1;
+
+            // Add adjacent tiles to queue
+            const directions = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+            for (const [dx, dy] of directions) {
+                const newKey = `${x + dx},${y + dy}`;
+                if (!visited.has(newKey)) {
+                    queue.push([x + dx, y + dy]);
+                }
+            }
+        }
+
+        // Calculate diversity (number of unique biomes)
+        const diversity = Object.keys(biomeCount).length;
+
+        // Calculate richness (weighted by biome value)
+        let richness = 0;
+        for (const [biome, count] of Object.entries(biomeCount)) {
+            richness += (biomeValue[biome] || 1) * count;
+        }
+        richness = richness / visited.size; // Average richness per tile
+
+        return {
+            size: visited.size,
+            biomes: biomeCount,
+            diversity: diversity,
+            richness: richness
+        };
+    }
+
     getBiomeInfo(biomeName) {
         return this.biomes[biomeName];
     }
@@ -548,7 +616,23 @@ class MapGenerator {
         // No suitable land found
         return null;
     }
-    
+
+    findNearestWalkableLand(startX, startY, maxRadius = 20) {
+        // Search in expanding radius for walkable land (not ocean)
+        for (let radius = 1; radius <= maxRadius; radius++) {
+            for (let angle = 0; angle < 360; angle += 30) {
+                const testX = Math.round(startX + radius * Math.cos(angle * Math.PI / 180));
+                const testY = Math.round(startY + radius * Math.sin(angle * Math.PI / 180));
+
+                const tile = this.getBiomeAt(testX, testY);
+                if (tile && this.isWalkable(testX, testY, false) && tile.biome !== 'ocean') {
+                    return { x: testX, y: testY, distance: radius };
+                }
+            }
+        }
+        return null;
+    }
+
     setVisibility(x, y, visible) {
         const tile = this.getBiomeAt(x, y);
         if (tile) {

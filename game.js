@@ -9,9 +9,12 @@ class PirateSeaGame {
         this.uiManager = null;
         this.resourceManager = null;
         this.playerInventory = null;
+        this.economyManager = null;
+        this.weatherManager = null;
         this.gameRunning = false;
         this.treasureCollected = 0;
         this.portsVisited = 0;
+        this.turnCount = 0;
     }
     
     async initialize() {
@@ -27,16 +30,22 @@ class PirateSeaGame {
             // Initialize game systems with seed
             this.mapGenerator = new MapGenerator(48, 28, this.seed);
             this.mapGenerator.generateMap();
-            
-            this.entityManager = new EntityManager(this.mapGenerator);
-            this.player = new Player(this.mapGenerator);
-            this.fogOfWar = new FogOfWar(this.mapGenerator);
-            
-            // Initialize resource system
+
+            // Initialize resource and economy systems
             const seededRandom = new SeededRandom(this.seed);
             this.resourceManager = new ResourceManager(this.mapGenerator, seededRandom);
             this.playerInventory = new PlayerInventory(100);
-            
+            this.economyManager = new EconomyManager(seededRandom);
+            this.weatherManager = new WeatherManager(seededRandom);
+            this.weatherManager.initializeNoise();
+
+            this.entityManager = new EntityManager(this.mapGenerator, this.economyManager);
+            this.player = new Player(this.mapGenerator);
+            this.fogOfWar = new FogOfWar(this.mapGenerator);
+
+            // Link weather manager to fog of war for visibility calculations
+            this.fogOfWar.setWeatherManager(this.weatherManager);
+
             this.uiManager = new UIManager(this);
             
             // Initialize display
@@ -44,7 +53,10 @@ class PirateSeaGame {
             
             // Spawn entities around player
             this.entityManager.spawnEntities(this.player.x, this.player.y);
-            
+
+            // Generate initial weather
+            this.weatherManager.generateWeather(this.player.x, this.player.y);
+
             // Initial game state update
             this.updateGameState();
             
@@ -70,12 +82,24 @@ class PirateSeaGame {
     
     updateGameState() {
         if (!this.gameRunning) return;
-        
-        // Update fog of war based on player position
+
+        this.turnCount++;
+
+        // Update time of day (advances by 6 minutes per turn)
+        this.fogOfWar.updateTimeOfDay(0.1);
+
+        // Update fog of war based on player position (takes weather & time into account)
         this.fogOfWar.updateVisibility(this.player.x, this.player.y);
-        
+
         // Check for entity interactions at player position
         this.checkEntityInteractions();
+
+        // Update weather systems (every turn)
+        if (this.weatherManager) {
+            this.weatherManager.updateWeather(this.player.x, this.player.y);
+            this.applyWeatherEffects();
+            this.checkWeatherWarnings();
+        }
     }
     
     checkEntityInteractions() {
@@ -188,10 +212,133 @@ class PirateSeaGame {
             this.uiManager.addMessage('Inventory system not initialized');
             return;
         }
-        
+
         this.uiManager.toggleInventory();
     }
-    
+
+    openTrading(port) {
+        if (!this.economyManager) {
+            this.uiManager.addMessage('Trading system not initialized');
+            return;
+        }
+
+        if (!port || !port.economy) {
+            this.uiManager.addMessage('No merchant available at this port');
+            return;
+        }
+
+        this.uiManager.showTradingScreen(port);
+    }
+
+    checkShipDestruction() {
+        // Only check if player is in ship mode
+        if (this.player.mode !== 'ship' || !this.player.shipDurability) {
+            return false;
+        }
+
+        // Check if ship is destroyed
+        if (this.player.shipDurability.current <= 0) {
+            this.handleShipSinking();
+            return true;
+        }
+
+        // Warn at critical HP
+        const hpPercent = this.player.shipDurability.current / this.player.shipDurability.max;
+        if (hpPercent <= 0.2 && !this.criticalWarningShown) {
+            this.uiManager.addMessage('⚠ CRITICAL: Your ship is falling apart! Seek port immediately!');
+            this.criticalWarningShown = true;
+        } else if (hpPercent > 0.2) {
+            this.criticalWarningShown = false;
+        }
+
+        return false;
+    }
+
+    handleShipSinking() {
+        this.uiManager.addMessage('💀 YOUR SHIP HAS SUNK! 💀');
+        this.uiManager.addMessage('You struggle to swim to the nearest shore...');
+
+        // Find nearest land using map generator
+        const nearestLand = this.mapGenerator.findNearestWalkableLand(this.player.x, this.player.y, 20);
+
+        if (nearestLand) {
+            this.player.x = nearestLand.x;
+            this.player.y = nearestLand.y;
+            this.player.mode = 'foot';
+            this.player.shipDurability = null;
+            this.uiManager.addMessage(`You wash ashore at (${nearestLand.x}, ${nearestLand.y}), exhausted but alive.`);
+        } else {
+            // Fallback: just switch to foot mode at current location
+            this.player.mode = 'foot';
+            this.player.shipDurability = null;
+            this.uiManager.addMessage('Somehow you survived and made it to shore!');
+        }
+
+        // Update game state
+        this.updateGameState();
+        this.render();
+    }
+
+    damageShip(amount) {
+        if (this.player.mode !== 'ship' || !this.player.shipDurability) {
+            return;
+        }
+
+        this.player.shipDurability.current = Math.max(0, this.player.shipDurability.current - amount);
+        this.player.shipDurability.lastDamage = Date.now();
+
+        const condition = this.entityManager.getShipCondition({ durability: this.player.shipDurability });
+        this.uiManager.addMessage(`⚓ Ship took ${amount} damage! (${this.player.shipDurability.current}/${this.player.shipDurability.max} HP - ${condition})`);
+
+        // Check if ship was destroyed
+        this.checkShipDestruction();
+    }
+
+    applyWeatherEffects() {
+        // Only damage ships, not players on foot
+        if (this.player.mode !== 'ship' || !this.player.shipDurability) {
+            return;
+        }
+
+        // Calculate weather damage at player position
+        const damage = this.weatherManager.calculateWeatherDamage(this.player.x, this.player.y);
+
+        if (damage > 0) {
+            this.damageShip(damage);
+
+            // Add weather-specific message
+            const weatherName = this.weatherManager.getWeatherName(this.player.x, this.player.y);
+            if (damage >= 10) {
+                this.uiManager.addMessage(`🌪️ The ${weatherName} batters your ship!`);
+            }
+        }
+    }
+
+    checkWeatherWarnings() {
+        // Only warn when on ship
+        if (this.player.mode !== 'ship') {
+            return;
+        }
+
+        // Check for nearby dangerous weather
+        const nearbyWeather = this.weatherManager.findNearbyDangerousWeather(
+            this.player.x,
+            this.player.y,
+            10
+        );
+
+        if (nearbyWeather.length > 0 && !this.lastWeatherWarning) {
+            const closest = nearbyWeather[0];
+            const weatherType = closest.weather.type;
+            const direction = closest.direction;
+
+            this.uiManager.addMessage(`⚠️ ${weatherType.toUpperCase()} approaching from the ${direction}!`);
+            this.lastWeatherWarning = this.turnCount;
+        } else if (nearbyWeather.length === 0) {
+            this.lastWeatherWarning = null;
+        }
+    }
+
     // Seed management methods
     getSeed() {
         return this.mapGenerator ? this.mapGenerator.getSeed() : this.seed;
