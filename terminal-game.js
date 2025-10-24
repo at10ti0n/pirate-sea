@@ -315,6 +315,14 @@ class TerminalGame {
         if (this.showTrading) {
             this.currentTradingPort = port;
             this.addMessage(`Trading at ${port.economy.tier} port - Gold: ${this.player.gold}g`);
+
+            // Clear readline's input buffer to prevent stray keypresses
+            // This prevents previously pressed keys from appearing in the trade input
+            if (this.rl && this.rl.line) {
+                this.rl.line = '';
+                this.rl.cursor = 0;
+                this.rl._refreshLine();
+            }
         } else {
             this.currentTradingPort = null;
             this.addMessage('Closed trading');
