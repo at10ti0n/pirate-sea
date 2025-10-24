@@ -442,10 +442,10 @@ class MapGenerator {
         return walkableTiles;
     }
 
-    // Generate resource glyph for a specific position (web version)
-    generateResourceGlyph(x, y, biomeType, resourceManager) {
+    // Generate resource glyph for a specific position
+    generateResourceGlyph(x, y, biomeType, resourceManager, platform = 'web') {
         if (!resourceManager) return this.biomes[biomeType];
-        
+
         const biomeConfig = resourceManager.getBiomeResources(biomeType);
         if (!biomeConfig || !biomeConfig.glyphDistribution) {
             return this.biomes[biomeType];
@@ -454,17 +454,17 @@ class MapGenerator {
         // Use position-based seeded random for deterministic glyph generation
         const positionSeed = this.seed + (x * 1000) + (y * 1000000);
         const positionRandom = new SeededRandom(positionSeed);
-        
+
         // Calculate total weight
         let totalWeight = 0;
         for (const glyph of biomeConfig.glyphDistribution) {
             totalWeight += glyph.weight;
         }
-        
+
         // Select glyph based on weight
         const randomValue = positionRandom.random() * totalWeight;
         let currentWeight = 0;
-        
+
         for (const glyphConfig of biomeConfig.glyphDistribution) {
             currentWeight += glyphConfig.weight;
             if (randomValue <= currentWeight) {
@@ -474,9 +474,9 @@ class MapGenerator {
                 } else {
                     // Check if location is depleted for visual representation
                     const isDepleted = resourceManager.isLocationVisuallyDepleted(x, y);
-                    
+
                     // Return resource glyph (normal or depleted variant)
-                    const resourceGlyph = resourceManager.getResourceGlyph(glyphConfig.glyph, 'web', isDepleted);
+                    const resourceGlyph = resourceManager.getResourceGlyph(glyphConfig.glyph, platform, isDepleted);
                     const resourceColor = resourceManager.getResourceColor(glyphConfig.glyph, isDepleted) || this.biomes[biomeType].color;
                     
                     if (resourceGlyph) {

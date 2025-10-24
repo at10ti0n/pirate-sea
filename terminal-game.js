@@ -833,7 +833,8 @@ class TerminalGame {
                                     tileData.worldX,
                                     tileData.worldY,
                                     tileData.tile.biome,
-                                    this.resourceManager
+                                    this.resourceManager,
+                                    'terminal'
                                 );
                                 const ansiColor = this.hexToAnsi(glyphInfo.color);
                                 const finalColor = isExplored ? this.dimColor(ansiColor) : ansiColor;
@@ -845,7 +846,8 @@ class TerminalGame {
                                 tileData.worldX,
                                 tileData.worldY,
                                 tileData.tile.biome,
-                                this.resourceManager
+                                this.resourceManager,
+                                'terminal'
                             );
                             const ansiColor = this.hexToAnsi(glyphInfo.color);
                             const finalColor = isExplored ? this.dimColor(ansiColor) : ansiColor;
