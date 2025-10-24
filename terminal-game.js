@@ -1458,9 +1458,24 @@ class TerminalGame {
         }
 
         // Check for resources
-        const resource = this.resourceManager.getResourceAt(x, y);
-        if (resource) {
-            this.addMessage(`Resource: ${resource.type} | Quantity: ${resource.quantity}`);
+        const locationState = this.resourceManager.getLocationState(x, y);
+        if (locationState) {
+            const isDepleted = this.resourceManager.isLocationDepleted(x, y);
+            if (!isDepleted && locationState.currentResource) {
+                const resourceInfo = this.resourceManager.getResourceInfo(locationState.currentResource);
+                if (resourceInfo) {
+                    this.addMessage(`Resource: ${locationState.currentResource} | Rarity: ${resourceInfo.rarity}`);
+                }
+            } else if (isDepleted) {
+                this.addMessage(`Resource: Depleted (regenerating)`);
+            }
+        } else {
+            // Show what resources are available in this biome
+            const biomeResources = this.resourceManager.getBiomeResources(tile.biome);
+            if (biomeResources && biomeResources.length > 0) {
+                const resourceNames = biomeResources.map(r => r.type).join(', ');
+                this.addMessage(`Available resources in ${tile.biome}: ${resourceNames}`);
+            }
         }
 
         // Check weather at location
