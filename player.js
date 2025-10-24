@@ -8,6 +8,22 @@ class Player {
         this.lastShipPosition = null;
         this.gold = 100; // Starting gold for trading
         this.shipDurability = null; // Track player's ship durability
+
+        // Health and survival stats
+        this.maxHealth = 100;
+        this.currentHealth = 100;
+        this.hunger = 100; // 0-100%, starts full
+        this.inCombat = false; // Combat state
+
+        // Food inventory
+        this.foodInventory = [];
+
+        // Time tracking for food spoilage
+        this.gameTime = 0; // Hours elapsed in game
+
+        // Ship provisions (when on ship)
+        this.shipProvisions = null;
+
         this.initialize();
     }
 
@@ -144,7 +160,7 @@ class Player {
         return { canEmbark: false };
     }
 
-    embarkFromCoast(entityManager) {
+    embarkFromCoast(entityManager, shipProvisionsSystem = null) {
         if (this.mode !== 'foot') {
             return { success: false, message: 'Already on a ship!' };
         }
@@ -168,6 +184,11 @@ class Player {
             coastX: this.x,
             coastY: this.y
         };
+
+        // Initialize provisions for newly launched ship
+        if (shipProvisionsSystem) {
+            this.shipProvisions = shipProvisionsSystem.initializeShipProvisions('dinghy', 5); // Small boat starts with minimal provisions
+        }
 
         // Add the ship to the entity manager
         entityManager.addEntity(newShip);
@@ -201,7 +222,7 @@ class Player {
         return { canUnboard: false };
     }
 
-    boardShip(shipPosition, entityManager) {
+    boardShip(shipPosition, entityManager, shipProvisionsSystem = null) {
         if (this.mode !== 'foot') {
             return { success: false, message: 'Already on a ship!' };
         }
@@ -213,6 +234,11 @@ class Player {
 
         // Store ship's durability before boarding
         this.shipDurability = boardInfo.ship.durability || entityManager.createShipDurability(100);
+
+        // Store ship's provisions before boarding (or initialize if not present)
+        if (shipProvisionsSystem) {
+            this.shipProvisions = boardInfo.ship.provisions || shipProvisionsSystem.initializeShipProvisions('sloop');
+        }
 
         // Remove ship entity from map
         entityManager.removeEntity(boardInfo.ship.x, boardInfo.ship.y);
@@ -251,15 +277,19 @@ class Player {
 
         this.mode = 'foot';
 
-        // Create ship entity at previous position with preserved durability
+        // Create ship entity at previous position with preserved durability and provisions
         entityManager.addEntity({
             type: 'ship',
             x: shipX,
             y: shipY,
             char: 'S',
             color: '#8b4513',
-            durability: this.shipDurability || entityManager.createShipDurability(100)
+            durability: this.shipDurability || entityManager.createShipDurability(100),
+            provisions: this.shipProvisions // Preserve provisions
         });
+
+        // Clear player's ship provisions reference
+        this.shipProvisions = null;
 
         // Customize message based on landing on beach or other terrain
         const landingMessage = unboardInfo.isBeach ?
@@ -308,4 +338,241 @@ class Player {
     canAfford(cost) {
         return this.gold >= cost;
     }
+
+    // ===== HEALTH & HUNGER MANAGEMENT =====
+
+    getHealth() {
+        return {
+            current: this.currentHealth,
+            max: this.maxHealth,
+            percent: Math.floor((this.currentHealth / this.maxHealth) * 100)
+        };
+    }
+
+    getHunger() {
+        return Math.floor(this.hunger);
+    }
+
+    takeDamage(amount) {
+        this.currentHealth = Math.max(0, this.currentHealth - amount);
+        return this.currentHealth;
+    }
+
+    heal(amount) {
+        this.currentHealth = Math.min(this.maxHealth, this.currentHealth + amount);
+        return this.currentHealth;
+    }
+
+    isDead() {
+        return this.currentHealth <= 0;
+    }
+
+    // Combat state management
+    enterCombat() {
+        this.inCombat = true;
+    }
+
+    exitCombat() {
+        this.inCombat = false;
+    }
+
+    isInCombat() {
+        return this.inCombat;
+    }
+
+    // ===== HUNGER SYSTEM =====
+
+    decreaseHunger(amount) {
+        this.hunger = Math.max(0, this.hunger - amount);
+
+        // Apply starvation damage if hunger reaches 0
+        if (this.hunger === 0) {
+            this.takeDamage(1); // 1 HP per hunger update when starving
+            return {
+                hunger: this.hunger,
+                starving: true,
+                message: 'You are starving! (-1 HP)'
+            };
+        }
+
+        return {
+            hunger: this.hunger,
+            starving: false
+        };
+    }
+
+    increaseHunger(amount) {
+        this.hunger = Math.min(100, this.hunger + amount);
+        return this.hunger;
+    }
+
+    // ===== FOOD INVENTORY MANAGEMENT =====
+
+    addFood(foodType, quantity = 1) {
+        // Check if food already exists in inventory
+        const existingFood = this.foodInventory.find(item => item.type === foodType);
+
+        if (existingFood) {
+            existingFood.quantity += quantity;
+        } else {
+            this.foodInventory.push({
+                type: foodType,
+                quantity: quantity,
+                purchasedAt: this.gameTime
+            });
+        }
+
+        return this.foodInventory;
+    }
+
+    removeFood(foodType, quantity = 1) {
+        const foodIndex = this.foodInventory.findIndex(item => item.type === foodType);
+
+        if (foodIndex === -1) {
+            return { success: false, message: `No ${foodType} in inventory!` };
+        }
+
+        const foodItem = this.foodInventory[foodIndex];
+
+        if (foodItem.quantity < quantity) {
+            return { success: false, message: `Not enough ${foodType}! (Have ${foodItem.quantity})` };
+        }
+
+        foodItem.quantity -= quantity;
+
+        // Remove from inventory if quantity reaches 0
+        if (foodItem.quantity === 0) {
+            this.foodInventory.splice(foodIndex, 1);
+        }
+
+        return { success: true, foodItem: foodItem };
+    }
+
+    eatFood(foodType, foodSystem) {
+        const foodIndex = this.foodInventory.findIndex(item => item.type === foodType);
+
+        if (foodIndex === -1) {
+            return {
+                success: false,
+                message: `No ${foodType} in inventory!`
+            };
+        }
+
+        const foodItem = this.foodInventory[foodIndex];
+
+        // Use FoodSystem to eat the food
+        const result = foodSystem.eatFood(this, foodItem, this.gameTime);
+
+        if (result.success) {
+            // Apply health and hunger restoration
+            this.heal(result.healthRestored);
+            this.increaseHunger(result.hungerRestored);
+
+            // Remove one unit from inventory
+            this.removeFood(foodType, 1);
+        }
+
+        return result;
+    }
+
+    getFoodInventory() {
+        return this.foodInventory;
+    }
+
+    hasFoodType(foodType) {
+        return this.foodInventory.some(item => item.type === foodType);
+    }
+
+    getFoodQuantity(foodType) {
+        const foodItem = this.foodInventory.find(item => item.type === foodType);
+        return foodItem ? foodItem.quantity : 0;
+    }
+
+    // ===== SHIP PROVISIONS =====
+
+    hasShipProvisions() {
+        return this.shipProvisions !== null && this.mode === 'ship';
+    }
+
+    getShipProvisions() {
+        return this.shipProvisions;
+    }
+
+    restOnShip(hours, foodSystem, shipProvisionsSystem) {
+        if (!this.hasShipProvisions()) {
+            return {
+                success: false,
+                message: 'Not on a ship with provisions!'
+            };
+        }
+
+        return shipProvisionsSystem.restOnShip(this, this.shipProvisions, hours, foodSystem);
+    }
+
+    purchaseShipProvisions(amount, portTier, shipProvisionsSystem) {
+        if (!this.hasShipProvisions()) {
+            return {
+                success: false,
+                message: 'Not on a ship!'
+            };
+        }
+
+        return shipProvisionsSystem.purchaseProvisions(this, this.shipProvisions, amount, portTier);
+    }
+
+    getShipProvisionStatus(shipProvisionsSystem) {
+        if (!this.hasShipProvisions()) {
+            return null;
+        }
+
+        return shipProvisionsSystem.getProvisionStatus(this.shipProvisions);
+    }
+
+    // ===== TIME PROGRESSION =====
+
+    advanceTime(hours, foodSystem) {
+        this.gameTime += hours;
+
+        // Decrease hunger over time
+        const hungerUpdate = foodSystem.updateHunger(this.hunger, hours);
+        this.hunger = hungerUpdate.newHunger;
+
+        // Apply starvation damage if hunger is 0
+        const starvationDamage = foodSystem.calculateStarvationDamage(this.hunger, hours);
+        if (starvationDamage > 0) {
+            this.takeDamage(starvationDamage);
+        }
+
+        return {
+            gameTime: this.gameTime,
+            hungerStatus: hungerUpdate.status,
+            starvationDamage: starvationDamage
+        };
+    }
+
+    getGameTime() {
+        return this.gameTime;
+    }
+
+    // ===== STATUS DISPLAY =====
+
+    getStatusSummary(foodSystem) {
+        const health = this.getHealth();
+        const hungerStatus = foodSystem.getHungerStatus(this.hunger);
+
+        return {
+            health: `${health.current}/${health.max} HP (${health.percent}%)`,
+            hunger: `${Math.floor(this.hunger)}% (${hungerStatus.message})`,
+            gold: `${this.gold}g`,
+            mode: this.mode,
+            position: `(${this.x}, ${this.y})`,
+            inCombat: this.inCombat,
+            gameTime: `${Math.floor(this.gameTime)}h`
+        };
+    }
+}
+
+// Export for use in Node.js and browser
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = Player;
 }
