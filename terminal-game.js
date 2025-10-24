@@ -188,12 +188,6 @@ class TerminalGame {
         // Update game state
         this.turnCount++;
 
-        // Check for new chunks and generate ports
-        const newPorts = this.entityManager.updateNearbyChunks(this.player.x, this.player.y);
-        if (newPorts > 0) {
-            this.addMessage(`Discovered ${newPorts} new port${newPorts > 1 ? 's' : ''} nearby!`);
-        }
-
         // Update time of day (advances by 6 minutes per turn)
         this.fogOfWar.updateTimeOfDay(0.1);
 
@@ -819,11 +813,11 @@ class TerminalGame {
                             let char, color;
                             if (entity.type === 'ship' && entity.durability) {
                                 char = this.entityManager.getShipIcon(entity);
-                                color = this.entityManager.getShipColor(entity);
+                                color = this.hexToAnsi(this.entityManager.getShipColor(entity));
                             } else {
                                 const entityInfo = this.entityManager.entityTypes[entity.type];
                                 char = entityInfo.char;
-                                color = entityInfo.color;
+                                color = this.hexToAnsi(entityInfo.color);
                             }
                             line += `${color}${char}\x1b[0m`;
                         } else if (hasWeather && isVisible) {
@@ -841,7 +835,8 @@ class TerminalGame {
                                     tileData.tile.biome,
                                     this.resourceManager
                                 );
-                                const finalColor = isExplored ? this.dimColor(glyphInfo.color) : glyphInfo.color;
+                                const ansiColor = this.hexToAnsi(glyphInfo.color);
+                                const finalColor = isExplored ? this.dimColor(ansiColor) : ansiColor;
                                 line += `${finalColor}${glyphInfo.char}\x1b[0m`;
                             }
                         } else {
@@ -852,7 +847,8 @@ class TerminalGame {
                                 tileData.tile.biome,
                                 this.resourceManager
                             );
-                            const finalColor = isExplored ? this.dimColor(glyphInfo.color) : glyphInfo.color;
+                            const ansiColor = this.hexToAnsi(glyphInfo.color);
+                            const finalColor = isExplored ? this.dimColor(ansiColor) : ansiColor;
                             line += `${finalColor}${glyphInfo.char}\x1b[0m`;
                         }
                     }
@@ -923,15 +919,13 @@ class TerminalGame {
     hexToAnsi(hexColor) {
         if (!hexColor) return '\x1b[37m'; // Default to white
 
-        // Simple hex to ANSI color mapping
-        const colorMap = {
-            '#b0b0b0': '\x1b[37m',   // Fog - white/light gray
-            '#6fa8dc': '\x1b[36m',   // Rain - cyan
-            '#3d5a80': '\x1b[34m',   // Storm - blue
-            '#1a1a2e': '\x1b[90m'    // Hurricane - dark gray
-        };
+        // If it's already an ANSI code, return it as-is
+        if (hexColor.startsWith('\x1b[')) {
+            return hexColor;
+        }
 
-        return colorMap[hexColor] || '\x1b[37m';
+        // Use displayAdapter's comprehensive color map
+        return this.displayAdapter.toAnsi(hexColor);
     }
 
     dimColor(ansiColor) {
