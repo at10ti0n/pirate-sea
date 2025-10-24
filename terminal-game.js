@@ -1486,7 +1486,7 @@ class TerminalGame {
         }
 
         // Fog of war status
-        const fogStatus = this.fogOfWar.getTileVisibility(x, y);
+        const fogStatus = this.fogOfWar.getTileVisibilityState(x, y);
         if (fogStatus) {
             this.addMessage(`Visibility: ${fogStatus}`);
         }
