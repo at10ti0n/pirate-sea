@@ -8,6 +8,8 @@ const PlayerInventory = require('./player-inventory');
 const EconomyManager = require('./economy');
 const WeatherManager = require('./weather');
 const FogOfWar = require('./fog');
+const FoodSystem = require('./food-system');
+const ShipProvisions = require('./ship-provisions');
 
 // Seeded random number generator for deterministic procedural generation
 class SeededRandom {
@@ -840,6 +842,10 @@ class TerminalGame {
         this.resourceManager = null;
         this.playerInventory = null;
 
+        // Initialize food and rest systems
+        this.foodSystem = new FoodSystem();
+        this.shipProvisionsSystem = new ShipProvisions();
+
         this.setupReadline();
     }
 
@@ -903,9 +909,15 @@ class TerminalGame {
         // Initialize fog of war visibility
         this.fogOfWar.updateVisibility(this.player.x, this.player.y);
 
+        // Give player starting food for testing
+        this.player.addFood('fish', 3);
+        this.player.addFood('berries', 2);
+        this.player.addFood('hardtack', 5);
+
         this.running = true;
         this.addMessage('Welcome to Pirate Sea! Use WASD to move, B to board/disembark, Q to quit.');
         this.addMessage('Press G to gather resources, I to view inventory, T to trade, R to repair at ports.');
+        this.addMessage('Press C to cook food, E to eat food. Manage your hunger to maintain health!');
         this.addMessage('A ship has been placed nearby for you to use!');
         this.addMessage(`Starting gold: ${this.player.gold}g | World seed: ${this.mapGenerator.seed}`);
         this.render();
@@ -944,6 +956,12 @@ class TerminalGame {
                 break;
             case 'r':
                 this.repairShip();
+                break;
+            case 'c':
+                this.cookFood();
+                break;
+            case 'e':
+                this.eatFood();
                 break;
         }
 
@@ -1131,6 +1149,56 @@ class TerminalGame {
             this.addMessage(`Repaired ${result.hpRepaired} HP for ${result.cost}g! Ship: ${result.newHp}/${result.maxHp} HP`);
         } else {
             this.addMessage(`Repair failed: ${result.error} (Cost: ${repairInfo.totalCost}g)`);
+        }
+    }
+
+    cookFood() {
+        // Determine cooking location based on current position
+        const port = this.entityManager.getEntityAt(this.player.x, this.player.y);
+        let location = 'campfire'; // Default to campfire
+
+        if (port && port.type === 'port') {
+            location = 'port';
+        } else if (this.player.mode === 'ship') {
+            location = 'ship';
+        }
+
+        // Get cookable items
+        const cookableItems = this.player.getCookableItems(this.foodSystem);
+
+        if (cookableItems.length === 0) {
+            this.addMessage('No cookable food in inventory! (Try catching raw fish)');
+            return;
+        }
+
+        // For now, cook the first cookable item (in future could add menu)
+        const itemToCook = cookableItems[0];
+        const result = this.player.cookFood(itemToCook.type, this.foodSystem, location);
+
+        if (result.success) {
+            this.addMessage(result.message);
+        } else {
+            this.addMessage(result.message);
+        }
+    }
+
+    eatFood() {
+        // Check if player has any food
+        const foodInventory = this.player.getFoodInventory();
+
+        if (foodInventory.length === 0) {
+            this.addMessage('No food in inventory! Press I to check inventory.');
+            return;
+        }
+
+        // For now, eat the first food item (in future could add menu)
+        const foodItem = foodInventory[0];
+        const result = this.player.eatFood(foodItem.type, this.foodSystem);
+
+        if (result.success) {
+            this.addMessage(result.message);
+        } else {
+            this.addMessage(result.message);
         }
     }
 
@@ -1487,7 +1555,12 @@ class TerminalGame {
         const timePeriod = this.fogOfWar.getTimeOfDayPeriod();
         const viewRadius = this.fogOfWar.getViewRadius();
 
+        // Get health and hunger info
+        const health = this.player.getHealth();
+        const hungerStatus = this.foodSystem.getHungerStatus(this.player.hunger);
+
         console.log(`\nPosition: (${this.player.x}, ${this.player.y}) | Mode: ${this.player.mode} | Gold: ${this.player.gold}g`);
+        console.log(`Health: ${health.current}/${health.max} HP | Hunger: ${Math.floor(this.player.hunger)}% (${hungerStatus.message})`);
         console.log(`Time: ${timeStr} (${timePeriod}) | Visibility: ${viewRadius} tiles`);
 
         // Show ship HP if player has a ship
@@ -1496,7 +1569,7 @@ class TerminalGame {
             console.log(`Ship: ${this.player.shipDurability.current}/${this.player.shipDurability.max} HP (${condition})`);
         }
 
-        console.log('Controls: WASD=Move, B=Board/Disembark, G=Gather, I=Inventory, T=Trade, R=Repair, Q=Quit');
+        console.log('Controls: WASD=Move, B=Board/Disembark, G=Gather, I=Inventory, T=Trade, R=Repair, C=Cook, E=Eat, Q=Quit');
 
         // Display trading if active
         if (this.showTrading) {
@@ -1507,6 +1580,22 @@ class TerminalGame {
         // Display inventory if toggled
         if (this.showInventory && !this.showTrading) {
             console.log('\n' + this.playerInventory.getInventoryDisplayTerminal(this.resourceManager));
+
+            // Display food inventory
+            const foodInventory = this.player.getFoodInventory();
+            if (foodInventory.length > 0) {
+                console.log('\n--- Food Inventory ---');
+                foodInventory.forEach(item => {
+                    const foodInfo = this.foodSystem.getFoodInfo(item.type);
+                    const spoiled = this.foodSystem.isSpoiled(item, this.player.gameTime);
+                    const status = spoiled ? ' [SPOILED]' : '';
+                    const cookable = this.foodSystem.canCook(item.type) ? ' (cookable)' : '';
+                    console.log(`  ${foodInfo.name} x${item.quantity}${status}${cookable} - ${foodInfo.restores}HP, ${foodInfo.hungerRestore}% hunger`);
+                });
+            } else {
+                console.log('\n--- Food Inventory ---');
+                console.log('  (no food)');
+            }
         }
 
         // Display recent messages
