@@ -1109,7 +1109,7 @@ class TerminalGame {
         this.running = true;
         this.addMessage('Welcome to Pirate Sea! Use WASD to move, B to board/disembark, Q to quit.');
         this.addMessage('Press G to gather resources, I to view inventory, T to trade, R to repair at ports.');
-        this.addMessage('Press C to cook food, E to eat food. Manage your hunger to maintain health!');
+        this.addMessage('Press C to cook food, E to eat food, X to examine current tile.');
         this.addMessage('A ship has been placed nearby for you to use!');
         this.addMessage(`Starting gold: ${this.player.gold}g | World seed: ${this.mapGenerator.seed}`);
         this.render();
@@ -1154,6 +1154,9 @@ class TerminalGame {
                 break;
             case 'e':
                 this.eatFood();
+                break;
+            case 'x':
+                this.examineTile();
                 break;
         }
 
@@ -1391,6 +1394,86 @@ class TerminalGame {
             this.addMessage(result.message);
         } else {
             this.addMessage(result.message);
+        }
+    }
+
+    examineTile() {
+        // Get current tile information
+        const x = this.player.x;
+        const y = this.player.y;
+        const tile = this.mapGenerator.getBiomeAt(x, y);
+
+        if (!tile) {
+            this.addMessage(`No tile data at (${x}, ${y})`);
+            return;
+        }
+
+        // Build detailed tile info message
+        let info = `=== Tile at (${x}, ${y}) ===`;
+
+        // Biome information
+        info += ` | Biome: ${tile.biome}`;
+        info += ` | Walkable: ${tile.walkable ? 'Yes' : 'No'}`;
+        info += ` | Ship: ${tile.shipWalkable ? 'Yes' : 'No'}`;
+
+        // Elevation and terrain details
+        if (tile.elevation !== undefined) {
+            info += ` | Elevation: ${tile.elevation.toFixed(2)}`;
+        }
+        if (tile.moisture !== undefined) {
+            info += ` | Moisture: ${tile.moisture.toFixed(2)}`;
+        }
+        if (tile.temperature !== undefined) {
+            info += ` | Temp: ${tile.temperature.toFixed(2)}`;
+        }
+
+        this.addMessage(info);
+
+        // Check for entities at this location
+        const entity = this.entityManager.getEntityAt(x, y);
+        if (entity) {
+            let entityInfo = `Entity: ${entity.type}`;
+
+            if (entity.type === 'port' && entity.economy) {
+                const tier = entity.economy.tier || 'unknown';
+                const portName = entity.name || 'Unnamed Port';
+                entityInfo += ` | Name: ${portName} | Tier: ${tier}`;
+
+                // Show if port has been visited
+                if (entity.economy.lastVisit) {
+                    entityInfo += ' | Visited';
+                }
+            } else if (entity.type === 'ship') {
+                if (entity.durability) {
+                    entityInfo += ` | HP: ${entity.durability.current}/${entity.durability.max}`;
+                }
+                if (entity.isStartingShip) {
+                    entityInfo += ' | Starting Ship';
+                }
+            } else if (entity.type === 'treasure') {
+                entityInfo += ' | $$$';
+            }
+
+            this.addMessage(entityInfo);
+        }
+
+        // Check for resources
+        const resource = this.resourceManager.getResourceAt(x, y);
+        if (resource) {
+            this.addMessage(`Resource: ${resource.type} | Quantity: ${resource.quantity}`);
+        }
+
+        // Check weather at location
+        const weather = this.weatherManager.getWeatherAt(x, y);
+        if (weather) {
+            const weatherType = weather > 0.7 ? 'Stormy' : weather > 0.4 ? 'Cloudy' : 'Clear';
+            this.addMessage(`Weather: ${weatherType} (${weather.toFixed(2)})`);
+        }
+
+        // Fog of war status
+        const fogStatus = this.fogOfWar.getTileVisibility(x, y);
+        if (fogStatus) {
+            this.addMessage(`Visibility: ${fogStatus}`);
         }
     }
 
@@ -1761,7 +1844,7 @@ class TerminalGame {
             console.log(`Ship: ${this.player.shipDurability.current}/${this.player.shipDurability.max} HP (${condition})`);
         }
 
-        console.log('Controls: WASD=Move, B=Board/Disembark, G=Gather, I=Inventory, T=Trade, R=Repair, C=Cook, E=Eat, Q=Quit');
+        console.log('Controls: WASD=Move, B=Board/Disembark, G=Gather, I=Inventory, T=Trade, R=Repair, C=Cook, E=Eat, X=Examine, Q=Quit');
 
         // Display trading if active
         if (this.showTrading) {
