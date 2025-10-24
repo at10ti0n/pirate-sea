@@ -459,6 +459,22 @@ class TerminalPlayer {
         this.mode = 'foot';
         this.gold = 100; // Starting gold for trading
         this.shipDurability = null; // Track player's ship durability
+
+        // Health and survival stats
+        this.maxHealth = 100;
+        this.currentHealth = 100;
+        this.hunger = 100; // 0-100%, starts full
+        this.inCombat = false; // Combat state
+
+        // Food inventory
+        this.foodInventory = [];
+
+        // Time tracking for food spoilage
+        this.gameTime = 0; // Hours elapsed in game
+
+        // Ship provisions (when on ship)
+        this.shipProvisions = null;
+
         this.initialize();
     }
 
@@ -499,6 +515,182 @@ class TerminalPlayer {
         }
 
         return false;
+    }
+
+    // ===== HEALTH & HUNGER MANAGEMENT =====
+
+    getHealth() {
+        return {
+            current: this.currentHealth,
+            max: this.maxHealth,
+            percent: Math.floor((this.currentHealth / this.maxHealth) * 100)
+        };
+    }
+
+    getHunger() {
+        return Math.floor(this.hunger);
+    }
+
+    takeDamage(amount) {
+        this.currentHealth = Math.max(0, this.currentHealth - amount);
+        return this.currentHealth;
+    }
+
+    heal(amount) {
+        this.currentHealth = Math.min(this.maxHealth, this.currentHealth + amount);
+        return this.currentHealth;
+    }
+
+    // ===== FOOD INVENTORY MANAGEMENT =====
+
+    addFood(foodType, quantity = 1) {
+        const existingFood = this.foodInventory.find(item => item.type === foodType);
+
+        if (existingFood) {
+            existingFood.quantity += quantity;
+        } else {
+            this.foodInventory.push({
+                type: foodType,
+                quantity: quantity,
+                purchasedAt: this.gameTime
+            });
+        }
+
+        return this.foodInventory;
+    }
+
+    removeFood(foodType, quantity = 1) {
+        const foodIndex = this.foodInventory.findIndex(item => item.type === foodType);
+
+        if (foodIndex === -1) {
+            return { success: false, message: `No ${foodType} in inventory!` };
+        }
+
+        const foodItem = this.foodInventory[foodIndex];
+
+        if (foodItem.quantity < quantity) {
+            return { success: false, message: `Not enough ${foodType}!` };
+        }
+
+        foodItem.quantity -= quantity;
+
+        if (foodItem.quantity === 0) {
+            this.foodInventory.splice(foodIndex, 1);
+        }
+
+        return { success: true, foodItem: foodItem };
+    }
+
+    eatFood(foodType, foodSystem) {
+        const foodIndex = this.foodInventory.findIndex(item => item.type === foodType);
+
+        if (foodIndex === -1) {
+            return {
+                success: false,
+                message: `No ${foodType} in inventory!`
+            };
+        }
+
+        const foodItem = this.foodInventory[foodIndex];
+        const result = foodSystem.eatFood(this, foodItem, this.gameTime);
+
+        if (result.success) {
+            this.heal(result.healthRestored);
+            this.increaseHunger(result.hungerRestored);
+            this.removeFood(foodType, 1);
+        }
+
+        return result;
+    }
+
+    getFoodInventory() {
+        return this.foodInventory;
+    }
+
+    hasFoodType(foodType) {
+        return this.foodInventory.some(item => item.type === foodType);
+    }
+
+    increaseHunger(amount) {
+        this.hunger = Math.min(100, this.hunger + amount);
+        return this.hunger;
+    }
+
+    // ===== COOKING SYSTEM =====
+
+    canCookHere(location = 'none') {
+        const validLocations = ['port', 'ship', 'campfire', 'settlement', 'tavern'];
+
+        if (location === 'ship' && this.mode !== 'ship') {
+            return { canCook: false, reason: 'Not on a ship!' };
+        }
+
+        if (validLocations.includes(location)) {
+            return { canCook: true, location: location };
+        }
+
+        return {
+            canCook: false,
+            reason: 'No cooking facilities available. You need a campfire, ship galley, port, or settlement.'
+        };
+    }
+
+    cookFood(foodType, foodSystem, location = 'ship') {
+        const locationCheck = this.canCookHere(location);
+        if (!locationCheck.canCook) {
+            return { success: false, message: locationCheck.reason };
+        }
+
+        if (!this.hasFoodType(foodType)) {
+            return { success: false, message: `No ${foodType} in inventory to cook!` };
+        }
+
+        if (!foodSystem.canCook(foodType)) {
+            const foodInfo = foodSystem.getFoodInfo(foodType);
+            return { success: false, message: `${foodInfo.name} cannot be cooked.` };
+        }
+
+        const cookResult = foodSystem.cookFood(foodType);
+
+        if (!cookResult.success) {
+            return cookResult;
+        }
+
+        const removeResult = this.removeFood(foodType, 1);
+        if (!removeResult.success) {
+            return { success: false, message: removeResult.message };
+        }
+
+        this.addFood(cookResult.cookedFood, 1);
+
+        return {
+            success: true,
+            message: `${cookResult.message} (at ${location})`,
+            rawFood: foodType,
+            cookedFood: cookResult.cookedFood,
+            cookedFoodInfo: cookResult.cookedFoodInfo
+        };
+    }
+
+    getCookableItems(foodSystem) {
+        const cookable = [];
+
+        for (const item of this.foodInventory) {
+            if (foodSystem.canCook(item.type)) {
+                const foodInfo = foodSystem.getFoodInfo(item.type);
+                const cookedInfo = foodSystem.getFoodInfo(foodInfo.canCookInto);
+
+                cookable.push({
+                    type: item.type,
+                    name: foodInfo.name,
+                    quantity: item.quantity,
+                    becomesType: foodInfo.canCookInto,
+                    becomesName: cookedInfo.name
+                });
+            }
+        }
+
+        return cookable;
     }
 }
 
