@@ -488,6 +488,114 @@ class Player {
         return foodItem ? foodItem.quantity : 0;
     }
 
+    // ===== COOKING SYSTEM =====
+
+    canCookHere(location = 'none') {
+        // Can cook at: ports, on ship (galley), campfire, or settlement
+        const validLocations = ['port', 'ship', 'campfire', 'settlement', 'tavern'];
+
+        if (location === 'ship' && this.mode !== 'ship') {
+            return {
+                canCook: false,
+                reason: 'Not on a ship!'
+            };
+        }
+
+        if (validLocations.includes(location)) {
+            return {
+                canCook: true,
+                location: location
+            };
+        }
+
+        return {
+            canCook: false,
+            reason: 'No cooking facilities available. You need a campfire, ship galley, port, or settlement.'
+        };
+    }
+
+    cookFood(foodType, foodSystem, location = 'ship') {
+        // Check if we can cook at this location
+        const locationCheck = this.canCookHere(location);
+        if (!locationCheck.canCook) {
+            return {
+                success: false,
+                message: locationCheck.reason
+            };
+        }
+
+        // Check if food type exists in inventory
+        if (!this.hasFoodType(foodType)) {
+            return {
+                success: false,
+                message: `No ${foodType} in inventory to cook!`
+            };
+        }
+
+        // Check if this food can be cooked
+        if (!foodSystem.canCook(foodType)) {
+            const foodInfo = foodSystem.getFoodInfo(foodType);
+            return {
+                success: false,
+                message: `${foodInfo.name} cannot be cooked.`
+            };
+        }
+
+        // Get the cooking result
+        const cookResult = foodSystem.cookFood(foodType);
+
+        if (!cookResult.success) {
+            return cookResult;
+        }
+
+        // Remove raw food from inventory
+        const removeResult = this.removeFood(foodType, 1);
+        if (!removeResult.success) {
+            return {
+                success: false,
+                message: removeResult.message
+            };
+        }
+
+        // Add cooked food to inventory
+        this.addFood(cookResult.cookedFood, 1);
+
+        return {
+            success: true,
+            message: `${cookResult.message} (at ${location})`,
+            rawFood: foodType,
+            cookedFood: cookResult.cookedFood,
+            cookedFoodInfo: cookResult.cookedFoodInfo
+        };
+    }
+
+    // Get list of cookable items in inventory
+    getCookableItems(foodSystem) {
+        const cookable = [];
+
+        for (const item of this.foodInventory) {
+            if (foodSystem.canCook(item.type)) {
+                const foodInfo = foodSystem.getFoodInfo(item.type);
+                const cookedInfo = foodSystem.getFoodInfo(foodInfo.canCookInto);
+
+                cookable.push({
+                    type: item.type,
+                    name: foodInfo.name,
+                    quantity: item.quantity,
+                    becomesType: foodInfo.canCookInto,
+                    becomesName: cookedInfo.name,
+                    improvement: {
+                        hp: cookedInfo.restores - foodInfo.restores,
+                        hunger: cookedInfo.hungerRestore - foodInfo.hungerRestore,
+                        spoilTime: cookedInfo.spoilTime - foodInfo.spoilTime
+                    }
+                });
+            }
+        }
+
+        return cookable;
+    }
+
     // ===== SHIP PROVISIONS =====
 
     hasShipProvisions() {
