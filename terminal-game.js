@@ -10,6 +10,7 @@ const WeatherManager = require('./weather');
 const FogOfWar = require('./fog');
 const FoodSystem = require('./food-system');
 const ShipProvisions = require('./ship-provisions');
+const NameGenerator = require('./nameGenerator');
 
 // Seeded random number generator for deterministic procedural generation
 class SeededRandom {
@@ -706,10 +707,13 @@ class TerminalEntityManager {
         };
         this.seededRandom = mapGenerator.seededRandom;
 
+        // Initialize name generator for ports
+        this.nameGenerator = new NameGenerator(mapGenerator.seededRandom);
+
         // Chunk-based spawning system
         this.CHUNK_SIZE = 100; // Each chunk is 100x100 tiles
         this.generatedChunks = new Set(); // Track which chunks have spawned entities
-        this.PORT_DENSITY = 0.15; // ~15% chance per suitable coastal tile in chunk
+        this.PORT_DENSITY = 0.4; // ~40% chance per suitable coastal tile in chunk (increased from 0.15)
     }
 
     getChunkKey(x, y) {
@@ -772,7 +776,7 @@ class TerminalEntityManager {
         };
 
         // Scan chunk in a grid pattern for coastal locations
-        const gridSize = 10; // Check every 10 tiles
+        const gridSize = 5; // Check every 5 tiles (increased from 10 for better coverage)
         const coastalCandidates = [];
 
         for (let x = bounds.minX; x < bounds.maxX; x += gridSize) {
@@ -798,6 +802,9 @@ class TerminalEntityManager {
                 if (this.economyManager) {
                     port.economy = this.economyManager.determinePortEconomy(port, this.mapGenerator);
                 }
+
+                // Generate port name
+                port.name = this.nameGenerator.generatePortName(candidate.x, candidate.y);
 
                 this.addEntity(port);
                 portsSpawned++;
