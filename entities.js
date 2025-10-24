@@ -338,7 +338,7 @@ class EntityManager {
                 char: 'P',
                 color: '#e74c3c',
                 hasShips: true,
-                shipsAvailable: this.seededRandom.nextInt(1, 3),
+                shipsAvailable: this.seededRandom.randomInt(1, 3),
                 lastVisited: null,
                 // Island and name data
                 islandName: island.name,
@@ -702,4 +702,9 @@ class EntityManager {
         }
         return null;
     }
+}
+
+// Export for both browser and Node.js
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = EntityManager;
 }

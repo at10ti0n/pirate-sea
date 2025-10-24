@@ -1,4 +1,15 @@
 // Map generation and biome system
+
+// Load dependencies for Node.js environment
+if (typeof require !== 'undefined') {
+    if (typeof SeededRandom === 'undefined') {
+        var SeededRandom = require('./seeded-random');
+    }
+    if (typeof ROT === 'undefined') {
+        var ROT = require('rot-js');
+    }
+}
+
 class MapGenerator {
     constructor(width = 48, height = 28, seed = null) {
         this.displayWidth = width;
@@ -675,4 +686,9 @@ class MapGenerator {
         const tempRandom = new SeededRandom(positionSeed);
         return tempRandom.random();
     }
+}
+
+// Export for both browser and Node.js
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = MapGenerator;
 }
