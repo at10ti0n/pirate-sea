@@ -33,12 +33,12 @@ class MapGenerator {
         this.biomes = {
             ocean: { char: '~', color: '#2980b9', walkable: false, shipWalkable: true },
             beach: { char: '.', color: '#f39c12', walkable: true, shipWalkable: false },
-            mountain: { char: '^', color: '#7f8c8d', walkable: false, shipWalkable: false },
-            snow: { char: '*', color: '#ecf0f1', walkable: false, shipWalkable: false },
+            mountain: { char: '^', color: '#7f8c8d', walkable: true, shipWalkable: false },
+            snow: { char: '*', color: '#ecf0f1', walkable: true, shipWalkable: false },
             desert: { char: ':', color: '#e67e22', walkable: true, shipWalkable: false },
             savanna: { char: '"', color: '#d35400', walkable: true, shipWalkable: false },
             jungle: { char: '#', color: '#27ae60', walkable: true, shipWalkable: false },
-            swamp: { char: '%', color: '#16a085', walkable: false, shipWalkable: false },
+            swamp: { char: '%', color: '#16a085', walkable: true, shipWalkable: false },
             taiga: { char: 'T', color: '#2c3e50', walkable: true, shipWalkable: false },
             tropical: { char: 't', color: '#e74c3c', walkable: true, shipWalkable: false },
             forest: { char: '♠', color: '#229954', walkable: true, shipWalkable: false }
