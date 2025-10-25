@@ -445,7 +445,9 @@ class TerminalGame {
 
         // Elevation and terrain details
         if (tile.elevation !== undefined) {
-            info += ` | Elevation: ${tile.elevation.toFixed(2)}`;
+            const heightMeters = this.mapGenerator.elevationToMeters(tile.elevation);
+            const heightTier = this.mapGenerator.getHeightTier(tile.elevation);
+            info += ` | Elevation: ${tile.elevation.toFixed(2)} (${heightMeters}m, ${heightTier})`;
         }
         if (tile.moisture !== undefined) {
             info += ` | Moisture: ${tile.moisture.toFixed(2)}`;
