@@ -32,6 +32,10 @@ class EntityManager {
 
         // Track discovered islands to avoid duplicate port spawning
         this.discoveredIslands = new Map(); // Key: 'x,y' (representative tile), Value: island data
+
+        // Track spawn regions for dynamic entity generation
+        this.spawnedRegions = new Set(); // Set of region keys 'chunkX,chunkY'
+        this.regionSize = 120; // Size of each spawn region (covers 120x120 tiles)
     }
     
     addEntity(entity) {
@@ -107,20 +111,63 @@ class EntityManager {
         return colors[condition] || '#8b4513';
     }
     
+    // Get region key for a position
+    getRegionKey(x, y) {
+        const regionX = Math.floor(x / this.regionSize);
+        const regionY = Math.floor(y / this.regionSize);
+        return `${regionX},${regionY}`;
+    }
+
+    // Check if we need to spawn entities for current player position
+    shouldSpawnForPosition(x, y) {
+        const regionKey = this.getRegionKey(x, y);
+        return !this.spawnedRegions.has(regionKey);
+    }
+
+    // Spawn entities in a new region (called dynamically during exploration)
+    spawnEntitiesInRegion(centerX, centerY) {
+        const regionKey = this.getRegionKey(centerX, centerY);
+
+        if (this.spawnedRegions.has(regionKey)) {
+            return 0; // Already spawned in this region
+        }
+
+        console.log(`Spawning entities in new region ${regionKey}...`);
+        this.spawnedRegions.add(regionKey);
+
+        const initialCount = this.entities.size;
+
+        // Spawn entities in this region (radius 60 from region center)
+        const regionCenterX = Math.floor(centerX / this.regionSize) * this.regionSize + (this.regionSize / 2);
+        const regionCenterY = Math.floor(centerY / this.regionSize) * this.regionSize + (this.regionSize / 2);
+
+        this.spawnPorts(regionCenterX, regionCenterY, 60);
+        this.spawnTreasure(regionCenterX, regionCenterY, 60);
+        this.spawnShips(regionCenterX, regionCenterY, 60);
+
+        const spawnedCount = this.entities.size - initialCount;
+        console.log(`Spawned ${spawnedCount} new entities in region ${regionKey}`);
+        return spawnedCount;
+    }
+
     spawnEntities(playerX = 0, playerY = 0) {
         console.log('Spawning entities around player...');
-        
+
         // Clear existing entities
         this.entities.clear();
-        
+        this.spawnedRegions.clear();
+
         // First, spawn a ship near the player's starting location
         this.spawnPlayerStartingShip(playerX, playerY);
-        
+
+        // Mark starting region as spawned
+        this.spawnedRegions.add(this.getRegionKey(playerX, playerY));
+
         // Then spawn other entities for the ocean-dominated world
         this.spawnPorts(playerX, playerY);
         this.spawnTreasure(playerX, playerY);
         this.spawnShips(playerX, playerY);
-        
+
         console.log(`Spawned ${this.entities.size} entities total`);
     }
     
@@ -413,9 +460,9 @@ class EntityManager {
         return portLocations;
     }
     
-    spawnTreasure(centerX, centerY) {
+    spawnTreasure(centerX, centerY, radius = 60) {
         const treasureCount = 30; // More treasure for increased land availability
-        const walkableTiles = this.getAvailableWalkableTiles(centerX, centerY);
+        const walkableTiles = this.getAvailableWalkableTiles(centerX, centerY, radius);
         
         for (let i = 0; i < treasureCount && walkableTiles.length > 0; i++) {
             const randomIndex = Math.floor(this.seededRandom.random() * walkableTiles.length);
@@ -436,9 +483,9 @@ class EntityManager {
         console.log(`Spawned ${Math.min(treasureCount, walkableTiles.length)} treasures`);
     }
     
-    spawnShips(centerX, centerY) {
+    spawnShips(centerX, centerY, radius = 60) {
         const shipCount = 20; // Ships for 80% water world
-        const oceanTiles = this.getAvailableOceanTiles(centerX, centerY);
+        const oceanTiles = this.getAvailableOceanTiles(centerX, centerY, radius);
         
         for (let i = 0; i < shipCount && oceanTiles.length > 0; i++) {
             const randomIndex = Math.floor(this.seededRandom.random() * oceanTiles.length);

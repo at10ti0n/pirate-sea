@@ -188,6 +188,14 @@ class TerminalGame {
         // Update game state
         this.turnCount++;
 
+        // Check if we need to spawn entities in new region (dynamic exploration)
+        if (this.entityManager.shouldSpawnForPosition(this.player.x, this.player.y)) {
+            const newEntities = this.entityManager.spawnEntitiesInRegion(this.player.x, this.player.y);
+            if (newEntities > 0) {
+                this.addMessage(`Discovered new lands! Found ${newEntities} new locations.`);
+            }
+        }
+
         // Update time of day (advances by 6 minutes per turn)
         this.fogOfWar.updateTimeOfDay(0.1);
 
