@@ -115,11 +115,12 @@ class MapGenerator {
         // Generate moisture (keep original)
         let moisture = (this.moistureNoise.get(x * 0.09 + 100, y * 0.09 + 100) + 1) / 2;
 
-        // Generate latitude-based temperature
+        // Generate latitude-based temperature (asymptotic approach for infinite world)
         // World center (y=0) = equator (hottest)
-        // Temperature decreases away from equator
-        const distanceFromEquator = Math.abs(y) / 100; // Normalize distance
-        const latitudeTemp = Math.max(0, Math.min(1, 1.0 - (distanceFromEquator * 0.6))); // 0°=hot, poles=cold
+        // Temperature decreases away from equator but never reaches absolute zero
+        // Uses atan for asymptotic curve - temperature approaches minimum but infinite exploration possible
+        const latitudeEffect = Math.atan(Math.abs(y) / 300) / (Math.PI / 2); // 0-1 range, slower falloff
+        const latitudeTemp = Math.max(0.3, 1.0 - (latitudeEffect * 0.7)); // Approaches 30% warmth minimum
 
         // Combine latitude with noise for variation
         const temperatureNoise = (this.temperatureNoise.get(x * 0.07 + 200, y * 0.07 + 200) + 1) / 2;
@@ -215,7 +216,8 @@ class MapGenerator {
         } else if (elevation < 0.45) { // Beaches - coastal areas
             return 'beach';
         } else if (elevation > 0.9) { // Only highest peaks become mountains
-            if (temperature < 0.4) {
+            // Adjusted for asymptotic temperature system (min ~0.3)
+            if (temperature < 0.5) {
                 return 'snow';
             } else {
                 return 'mountain';
@@ -232,7 +234,7 @@ class MapGenerator {
             } else {
                 return 'swamp';
             }
-        } else if (temperature < 0.2) { // Very cold
+        } else if (temperature < 0.35) { // Very cold (adjusted for asymptotic system)
             return 'taiga';
         } else if (temperature > 0.8) { // Very hot
             return 'tropical';
