@@ -1,11 +1,21 @@
 // Entity management system for ships, ports, and treasure
-// Import NameGenerator if in Node.js environment
-let NameGenerator;
+// Import dependencies if in Node.js environment
+let NameGenerator, TreasureSystem, ShipSystem;
 if (typeof require !== 'undefined') {
     try {
         NameGenerator = require('./nameGenerator.js');
     } catch (e) {
         // NameGenerator not available - names will be skipped
+    }
+    try {
+        TreasureSystem = require('./treasure.js');
+    } catch (e) {
+        // TreasureSystem not available
+    }
+    try {
+        ShipSystem = require('./ships.js');
+    } catch (e) {
+        // ShipSystem not available
     }
 }
 
@@ -28,6 +38,14 @@ class EntityManager {
         // Name generator for islands and ports
         if (typeof NameGenerator !== 'undefined') {
             this.nameGenerator = new NameGenerator(mapGenerator.getSeed());
+        }
+
+        // Phase 1: MVP Loop Systems
+        if (typeof TreasureSystem !== 'undefined') {
+            this.treasureSystem = new TreasureSystem(this.seededRandom);
+        }
+        if (typeof ShipSystem !== 'undefined') {
+            this.shipSystem = new ShipSystem();
         }
 
         // Track discovered islands to avoid duplicate port spawning
@@ -463,23 +481,36 @@ class EntityManager {
     spawnTreasure(centerX, centerY, radius = 60) {
         const treasureCount = 30; // More treasure for increased land availability
         const walkableTiles = this.getAvailableWalkableTiles(centerX, centerY, radius);
-        
+
         for (let i = 0; i < treasureCount && walkableTiles.length > 0; i++) {
             const randomIndex = Math.floor(this.seededRandom.random() * walkableTiles.length);
             const tile = walkableTiles[randomIndex];
-            
+
+            // Generate treasure data using TreasureSystem (Phase 1: MVP Loop)
+            let treasureData = null;
+            let color = '#f1c40f'; // Default yellow
+            if (this.treasureSystem) {
+                treasureData = this.treasureSystem.generateTreasure({
+                    position: { x: tile.x, y: tile.y }
+                });
+                // Use rarity-based color
+                const display = this.treasureSystem.getTreasureDisplay(treasureData.rarity);
+                color = display.color;
+            }
+
             const treasure = {
                 type: 'treasure',
                 x: tile.x,
                 y: tile.y,
                 char: '$',
-                color: '#f1c40f'
+                color: color,
+                treasureData: treasureData // Store treasure data for collection
             };
-            
+
             this.addEntity(treasure);
             walkableTiles.splice(randomIndex, 1); // Remove used tile
         }
-        
+
         console.log(`Spawned ${Math.min(treasureCount, walkableTiles.length)} treasures`);
     }
     
@@ -560,24 +591,79 @@ class EntityManager {
         
         switch (entity.type) {
             case 'treasure':
-                this.removeEntity(x, y);
-                return { success: true, message: 'You found treasure!' };
-                
+                return this.collectTreasure(entity, player);
+
             case 'port':
-                return this.visitPort(entity);
-                
+                return this.visitPort(entity, player);
+
             case 'ship':
                 return { success: false, message: 'Use the board command to board the ship.' };
-                
+
             default:
                 return { success: false, message: 'Unknown entity type.' };
         }
     }
+
+    collectTreasure(treasureEntity, player) {
+        // Generate or use existing treasure data
+        let treasureItem;
+        if (treasureEntity.treasureData) {
+            // Already has treasure data (from map generation)
+            treasureItem = treasureEntity.treasureData;
+        } else if (this.treasureSystem) {
+            // Generate new treasure
+            treasureItem = this.treasureSystem.generateTreasure({
+                position: { x: treasureEntity.x, y: treasureEntity.y }
+            });
+        } else {
+            // Fallback if TreasureSystem not available
+            treasureItem = {
+                type: 'treasure',
+                name: 'Gold Coins',
+                value: 50,
+                weight: 1,
+                rarity: 'common'
+            };
+        }
+
+        // Try to add to cargo
+        const result = player.addToCargo(treasureItem);
+
+        if (result.success) {
+            // Remove treasure from map
+            this.removeEntity(treasureEntity.x, treasureEntity.y);
+            return {
+                success: true,
+                message: `Found ${treasureItem.name}! (${treasureItem.value}g) ${result.message}`
+            };
+        } else {
+            // Cargo full, treasure stays on ground
+            return {
+                success: false,
+                message: `Cannot pick up ${treasureItem.name} - ${result.message}`
+            };
+        }
+    }
     
-    visitPort(port) {
+    visitPort(port, player) {
         port.lastVisited = Date.now();
-        
+
+        // Phase 1: MVP Loop - Home port claiming
+        let welcomeMessage = '';
+        if (player.setHomePort) {
+            const isFirstPort = player.setHomePort(port);
+            if (isFirstPort) {
+                port.isHomePort = true;
+                welcomeMessage = `\n🏰 ${port.portName || 'This port'} is now your HOME PORT! You can always return here.`;
+            }
+        }
+
+        // Check if this is home port
+        const isHome = player.isAtHomePort && player.isAtHomePort();
+        const portLabel = isHome ? `${port.portName || 'Port'} (HOME)` : (port.portName || 'Port');
+
         // Spawn ships in nearby ocean tiles if port has ships available
+        let shipsMessage = '';
         if (port.hasShips && port.shipsAvailable > 0) {
             const spawned = this.spawnPortShips(port);
             if (spawned > 0) {
@@ -586,16 +672,15 @@ class EntityManager {
                     port.hasShips = false;
                     port.color = '#a93226'; // Darker red when no ships available
                 }
-                return { 
-                    success: true, 
-                    message: `Welcome to the port! ${spawned} ship(s) are now available nearby. Ships remaining: ${port.shipsAvailable}` 
-                };
+                shipsMessage = `\n${spawned} ship(s) available nearby. Ships remaining: ${port.shipsAvailable}`;
             }
         }
-        
-        return { 
-            success: true, 
-            message: port.hasShips ? 'Welcome to the port! No suitable docking spots for ships nearby.' : 'Welcome to the port! No ships available.' 
+
+        return {
+            success: true,
+            message: `Welcome to ${portLabel}!${welcomeMessage}${shipsMessage}\n\nPort services available - use 'P' to open port menu.`,
+            portData: port, // Pass port data for menu
+            isHomePort: isHome
         };
     }
     
@@ -748,6 +833,241 @@ class EntityManager {
             return this.interactWithEntity(player.x, player.y, player);
         }
         return null;
+    }
+
+    // ===== PORT SERVICES (Phase 1: MVP Loop) =====
+
+    /**
+     * Sell treasure from player cargo
+     * @param {Object} player - Player instance
+     * @param {string} sellOption - 'all' or index number
+     * @returns {Object} - Sale result
+     */
+    sellTreasure(player, sellOption = 'all') {
+        if (!player.cargoHold || player.cargoHold.length === 0) {
+            return {
+                success: false,
+                message: 'No cargo to sell!'
+            };
+        }
+
+        let goldEarned = 0;
+        let itemsSold = 0;
+
+        if (sellOption === 'all') {
+            // Sell all treasure items
+            const treasures = player.cargoHold.filter(item => item.type === 'treasure');
+            treasures.forEach(treasure => {
+                goldEarned += treasure.value || 0;
+                itemsSold++;
+            });
+
+            // Remove treasures from cargo
+            player.cargoHold = player.cargoHold.filter(item => item.type !== 'treasure');
+        } else {
+            // Sell specific item by index
+            const index = parseInt(sellOption);
+            if (index >= 0 && index < player.cargoHold.length) {
+                const item = player.cargoHold[index];
+                if (item.type === 'treasure') {
+                    goldEarned = item.value || 0;
+                    itemsSold = 1;
+                    player.removeFromCargo(index);
+                } else {
+                    return {
+                        success: false,
+                        message: 'That item is not treasure!'
+                    };
+                }
+            } else {
+                return {
+                    success: false,
+                    message: 'Invalid cargo index!'
+                };
+            }
+        }
+
+        if (itemsSold > 0) {
+            player.addGold(goldEarned);
+            return {
+                success: true,
+                message: `Sold ${itemsSold} treasure(s) for ${goldEarned}g! Total gold: ${player.gold}g`,
+                goldEarned: goldEarned,
+                itemsSold: itemsSold
+            };
+        }
+
+        return {
+            success: false,
+            message: 'No treasure to sell!'
+        };
+    }
+
+    /**
+     * Buy a new ship at port
+     * @param {Object} player - Player instance
+     * @param {string} shipType - Ship type to buy
+     * @returns {Object} - Purchase result
+     */
+    buyShip(player, shipType) {
+        if (!this.shipSystem) {
+            return {
+                success: false,
+                message: 'Ship system not available!'
+            };
+        }
+
+        const shipStats = this.shipSystem.getShipStats(shipType);
+        if (!shipStats) {
+            return {
+                success: false,
+                message: 'Unknown ship type!'
+            };
+        }
+
+        // Check if player can afford
+        if (!player.canAfford(shipStats.cost)) {
+            return {
+                success: false,
+                message: `Not enough gold! Need ${shipStats.cost}g, have ${player.gold}g`
+            };
+        }
+
+        // Check if player already has this ship
+        if (player.currentShip === shipType) {
+            return {
+                success: false,
+                message: `You already have a ${shipStats.name}!`
+            };
+        }
+
+        // Purchase ship
+        player.spendGold(shipStats.cost);
+        player.currentShip = shipType;
+        player.maxCargoSpace = shipStats.maxCargo;
+        player.maxShipHull = shipStats.maxHull;
+        player.shipHull = shipStats.maxHull; // Full hull on new ship
+
+        // Drop excess cargo if new ship has less space
+        const cargoWeight = player.getCargoWeight();
+        if (cargoWeight > player.maxCargoSpace) {
+            const excess = cargoWeight - player.maxCargoSpace;
+            return {
+                success: true,
+                message: `Purchased ${shipStats.name} for ${shipStats.cost}g! WARNING: ${excess} cargo units dropped (exceeded capacity)!`,
+                shipType: shipType,
+                dropped: excess
+            };
+        }
+
+        return {
+            success: true,
+            message: `Purchased ${shipStats.name} for ${shipStats.cost}g! Gold remaining: ${player.gold}g`,
+            shipType: shipType
+        };
+    }
+
+    /**
+     * Repair ship hull at port
+     * @param {Object} player - Player instance
+     * @param {number} costPerHP - Cost per hull point (from economy)
+     * @returns {Object} - Repair result
+     */
+    repairShip(player, costPerHP = 2) {
+        if (!this.shipSystem) {
+            return {
+                success: false,
+                message: 'Ship system not available!'
+            };
+        }
+
+        const damage = player.maxShipHull - player.shipHull;
+
+        if (damage === 0) {
+            return {
+                success: false,
+                message: 'Ship is already at full hull!'
+            };
+        }
+
+        const totalCost = damage * costPerHP;
+
+        if (!player.canAfford(totalCost)) {
+            // Offer partial repair
+            const affordableHP = Math.floor(player.gold / costPerHP);
+            if (affordableHP > 0) {
+                return {
+                    success: false,
+                    message: `Full repair costs ${totalCost}g (you have ${player.gold}g). Can repair ${affordableHP} HP for ${affordableHP * costPerHP}g?`,
+                    partialRepair: {
+                        hp: affordableHP,
+                        cost: affordableHP * costPerHP
+                    }
+                };
+            }
+
+            return {
+                success: false,
+                message: `Not enough gold to repair! Need ${totalCost}g, have ${player.gold}g`
+            };
+        }
+
+        // Repair ship
+        player.spendGold(totalCost);
+        player.shipHull = player.maxShipHull;
+
+        return {
+            success: true,
+            message: `Ship repaired! Restored ${damage} HP for ${totalCost}g. Gold remaining: ${player.gold}g`,
+            hpRestored: damage,
+            costPaid: totalCost
+        };
+    }
+
+    /**
+     * Get available services at current port
+     * @param {Object} port - Port entity
+     * @param {Object} player - Player instance
+     * @returns {Object} - Service information
+     */
+    getPortServices(port, player) {
+        const services = {
+            portName: port.portName || 'Port',
+            isHomePort: player.isAtHomePort && player.isAtHomePort(),
+            services: []
+        };
+
+        // Merchant (sell treasure)
+        const cargoSummary = player.getCargoSummary();
+        const treasureCount = player.cargoHold.filter(item => item.type === 'treasure').length;
+        const treasureValue = player.cargoHold
+            .filter(item => item.type === 'treasure')
+            .reduce((sum, item) => sum + item.value, 0);
+
+        services.services.push({
+            name: 'Merchant',
+            key: 'merchant',
+            description: `Sell treasure (${treasureCount} items worth ${treasureValue}g)`,
+            available: treasureCount > 0
+        });
+
+        // Shipyard (buy ships, repair)
+        if (this.shipSystem) {
+            const availableShips = this.shipSystem.getAvailableShips(player.gold);
+            const damage = player.maxShipHull - player.shipHull;
+            const repairCost = damage * 2;
+
+            services.services.push({
+                name: 'Shipyard',
+                key: 'shipyard',
+                description: `Buy ships (${availableShips.filter(s => s.canAfford).length} affordable) | Repair (${repairCost}g)`,
+                available: true,
+                shipsAvailable: availableShips.length,
+                needsRepair: damage > 0
+            });
+        }
+
+        return services;
     }
 }
 

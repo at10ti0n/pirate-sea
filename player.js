@@ -24,6 +24,20 @@ class Player {
         // Ship provisions (when on ship)
         this.shipProvisions = null;
 
+        // Cargo hold system (Phase 1: MVP Loop)
+        this.cargoHold = []; // Array of cargo items
+        this.maxCargoSpace = 5; // Starting capacity (dinghy)
+
+        // Ship progression system
+        this.currentShip = 'dinghy'; // Ship type
+        this.shipHull = 50; // Current hull HP
+        this.maxShipHull = 50; // Max hull for current ship
+
+        // Home port system
+        this.homePort = null; // Set when first port is visited
+        this.homePortX = null;
+        this.homePortY = null;
+
         this.initialize();
     }
 
@@ -677,6 +691,177 @@ class Player {
             inCombat: this.inCombat,
             gameTime: `${Math.floor(this.gameTime)}h`
         };
+    }
+
+    // ===== CARGO HOLD MANAGEMENT (Phase 1: MVP Loop) =====
+
+    /**
+     * Add an item to the cargo hold
+     * @param {Object} item - Cargo item to add
+     * @returns {Object} - { success: boolean, message: string }
+     */
+    addToCargo(item) {
+        const currentWeight = this.getCargoWeight();
+        const newWeight = currentWeight + (item.weight || 1);
+
+        if (newWeight > this.maxCargoSpace) {
+            return {
+                success: false,
+                message: `Cargo hold full! (${currentWeight}/${this.maxCargoSpace})`
+            };
+        }
+
+        this.cargoHold.push(item);
+        return {
+            success: true,
+            message: `Added ${item.name} to cargo (${newWeight}/${this.maxCargoSpace})`
+        };
+    }
+
+    /**
+     * Remove an item from cargo by index
+     * @param {number} index - Index of item to remove
+     * @returns {Object|null} - Removed item or null
+     */
+    removeFromCargo(index) {
+        if (index >= 0 && index < this.cargoHold.length) {
+            return this.cargoHold.splice(index, 1)[0];
+        }
+        return null;
+    }
+
+    /**
+     * Get total weight of cargo
+     * @returns {number} - Total cargo weight
+     */
+    getCargoWeight() {
+        return this.cargoHold.reduce((total, item) => total + (item.weight || 1), 0);
+    }
+
+    /**
+     * Check if an item can be added to cargo
+     * @param {Object} item - Item to check
+     * @returns {boolean} - True if item can be added
+     */
+    canAddToCargo(item) {
+        const currentWeight = this.getCargoWeight();
+        const itemWeight = item.weight || 1;
+        return (currentWeight + itemWeight) <= this.maxCargoSpace;
+    }
+
+    /**
+     * Get cargo hold summary
+     * @returns {Object} - Cargo information
+     */
+    getCargoSummary() {
+        const weight = this.getCargoWeight();
+        return {
+            items: this.cargoHold,
+            count: this.cargoHold.length,
+            weight: weight,
+            maxWeight: this.maxCargoSpace,
+            free: this.maxCargoSpace - weight,
+            isFull: weight >= this.maxCargoSpace
+        };
+    }
+
+    /**
+     * Clear all cargo (for death/selling)
+     * @returns {Array} - Items that were in cargo
+     */
+    clearCargo() {
+        const items = [...this.cargoHold];
+        this.cargoHold = [];
+        return items;
+    }
+
+    /**
+     * Get total value of cargo
+     * @returns {number} - Total gold value of all cargo
+     */
+    getCargoValue() {
+        return this.cargoHold.reduce((total, item) => total + (item.value || 0), 0);
+    }
+
+    // ===== HOME PORT MANAGEMENT =====
+
+    /**
+     * Set home port (first port visited)
+     * @param {Object} port - Port entity
+     */
+    setHomePort(port) {
+        if (!this.homePort) {
+            this.homePort = port;
+            this.homePortX = port.x;
+            this.homePortY = port.y;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Get distance to home port
+     * @returns {number|null} - Distance or null if no home port
+     */
+    getDistanceToHome() {
+        if (this.homePort) {
+            const dx = this.x - this.homePortX;
+            const dy = this.y - this.homePortY;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+        return null;
+    }
+
+    /**
+     * Check if at home port
+     * @returns {boolean} - True if at home port location
+     */
+    isAtHomePort() {
+        return this.homePort && this.x === this.homePortX && this.y === this.homePortY;
+    }
+
+    // ===== SHIP MANAGEMENT =====
+
+    /**
+     * Get current ship stats
+     * @returns {Object} - Ship information
+     */
+    getShipStats() {
+        return {
+            type: this.currentShip,
+            hull: this.shipHull,
+            maxHull: this.maxShipHull,
+            cargoSpace: this.maxCargoSpace,
+            hullPercent: Math.floor((this.shipHull / this.maxShipHull) * 100)
+        };
+    }
+
+    /**
+     * Damage the ship hull
+     * @param {number} damage - Amount of damage to apply
+     * @returns {number} - Current hull HP
+     */
+    damageShip(damage) {
+        this.shipHull = Math.max(0, this.shipHull - damage);
+        return this.shipHull;
+    }
+
+    /**
+     * Repair ship hull
+     * @param {number} amount - Amount of HP to restore
+     * @returns {number} - Current hull HP
+     */
+    repairShip(amount) {
+        this.shipHull = Math.min(this.maxShipHull, this.shipHull + amount);
+        return this.shipHull;
+    }
+
+    /**
+     * Check if ship is destroyed
+     * @returns {boolean} - True if hull is 0
+     */
+    isShipDestroyed() {
+        return this.shipHull <= 0;
     }
 }
 
