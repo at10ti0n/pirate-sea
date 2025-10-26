@@ -863,6 +863,85 @@ class Player {
     isShipDestroyed() {
         return this.shipHull <= 0;
     }
+
+    // ===== PHASE 2: STORM DAMAGE SYSTEM =====
+
+    /**
+     * Apply storm damage to ship hull (Phase 2: Risk & Stakes)
+     * @param {string} weatherType - Weather type (rain, storm, hurricane)
+     * @param {number} baseDamage - Base damage from weather
+     * @returns {number} - Actual damage applied
+     */
+    applyStormDamage(weatherType, baseDamage) {
+        if (this.mode !== 'ship' || baseDamage === 0) return 0;
+
+        // Ship resistance - better ships take less damage
+        const resistance = {
+            dinghy: 1.0,      // 100% damage (fragile)
+            sloop: 0.9,       // 90% damage
+            brigantine: 0.75, // 75% damage
+            frigate: 0.6,     // 60% damage
+            galleon: 0.5      // 50% damage (sturdy)
+        }[this.currentShip] || 1.0;
+
+        const actualDamage = Math.ceil(baseDamage * resistance);
+        this.damageShip(actualDamage);
+
+        return actualDamage;
+    }
+
+    /**
+     * Get danger level based on distance from home (Phase 2)
+     * @returns {Object} - Danger level and info
+     */
+    getDangerLevel() {
+        if (!this.homePort) {
+            return {
+                level: 'unknown',
+                ratio: 0,
+                inSafeZone: true
+            };
+        }
+
+        const distance = this.getDistanceToHome();
+        const shipRange = this.getShipRange();
+        const dangerRatio = distance / shipRange;
+
+        let level;
+        if (dangerRatio < 0.5) {
+            level = 'safe';
+        } else if (dangerRatio < 0.8) {
+            level = 'moderate';
+        } else if (dangerRatio < 1.2) {
+            level = 'dangerous';
+        } else {
+            level = 'extreme';
+        }
+
+        return {
+            level: level,
+            ratio: dangerRatio,
+            distance: Math.floor(distance),
+            shipRange: shipRange,
+            inSafeZone: dangerRatio < 0.5
+        };
+    }
+
+    /**
+     * Get ship's safe range
+     * @returns {number} - Safe range in tiles
+     */
+    getShipRange() {
+        const ranges = {
+            dinghy: 100,
+            sloop: 200,
+            brigantine: 400,
+            frigate: 800,
+            galleon: 99999
+        };
+
+        return ranges[this.currentShip] || 100;
+    }
 }
 
 // Export for use in Node.js and browser

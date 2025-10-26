@@ -60,6 +60,8 @@ class TerminalGame {
         this.currentPort = null; // Phase 1: MVP Loop
         this.criticalWarningShown = false;
         this.lastWeatherWarning = null;
+        this.criticalHullWarningShown = false; // Phase 2: Hull warnings
+        this.moderateHullWarningShown = false; // Phase 2: Hull warnings
 
         // Initialize resource system
         this.resourceManager = null;
@@ -624,23 +626,77 @@ class TerminalGame {
     }
 
     applyWeatherEffects() {
-        // Only damage ships, not players on foot
-        if (this.player.mode !== 'ship' || !this.player.shipDurability) {
+        // Phase 2: Storm damage using new hull system
+        if (this.player.mode !== 'ship') {
             return;
         }
 
-        // Calculate weather damage at player position
-        const damage = this.weatherManager.calculateWeatherDamage(this.player.x, this.player.y);
+        // Get weather at current position
+        const weather = this.weatherManager.getWeatherAt(this.player.x, this.player.y);
+        if (!weather || weather.type === 'clear') {
+            return;
+        }
+
+        // Get weather type configuration
+        const weatherConfig = this.weatherManager.WEATHER_TYPES[weather.type];
+        if (!weatherConfig || weatherConfig.damage === 0) {
+            return;
+        }
+
+        // Apply storm damage using Phase 1 ship hull system
+        const damage = this.player.applyStormDamage(weather.type, weatherConfig.damage);
 
         if (damage > 0) {
-            this.damageShip(damage);
+            const shipStats = this.player.getShipStats();
+            const hullPercent = shipStats.hullPercent;
 
-            // Add weather-specific message
-            const weatherName = this.weatherManager.getWeatherName(this.player.x, this.player.y);
-            if (damage >= 10) {
-                this.addMessage(`🌪️ The ${weatherName} batters your ship!`);
+            // Weather-specific messages
+            if (weather.type === 'hurricane') {
+                this.addMessage(`🌀 HURRICANE batters your ship! -${damage} HP (${shipStats.hull}/${shipStats.maxHull})`);
+            } else if (weather.type === 'storm') {
+                this.addMessage(`⛈️ STORM damages ship! -${damage} HP (${shipStats.hull}/${shipStats.maxHull})`);
+            } else if (weather.type === 'rain') {
+                this.addMessage(`🌧️ Heavy rain damages ship -${damage} HP (${shipStats.hull}/${shipStats.maxHull})`);
+            }
+
+            // Hull damage warnings (Phase 2)
+            if (hullPercent <= 10 && hullPercent > 0) {
+                this.addMessage(`☠️ HULL FAILING! You are about to sink!`);
+            } else if (hullPercent <= 25 && !this.criticalHullWarningShown) {
+                this.addMessage(`🚨 CRITICAL DAMAGE! Return to port immediately!`);
+                this.criticalHullWarningShown = true;
+            } else if (hullPercent <= 50 && !this.moderateHullWarningShown) {
+                this.addMessage(`⚠️ Hull damaged - repair at port recommended`);
+                this.moderateHullWarningShown = true;
+            }
+
+            // Reset warnings if hull is repaired
+            if (hullPercent > 25) {
+                this.criticalHullWarningShown = false;
+            }
+            if (hullPercent > 50) {
+                this.moderateHullWarningShown = false;
+            }
+
+            // Check for death
+            if (this.player.isShipDestroyed()) {
+                this.handleDeath('shipwreck');
             }
         }
+    }
+
+    // ===== PHASE 2: DEATH & RESPAWN SYSTEM =====
+
+    handleDeath(cause) {
+        // Phase 2: Stub implementation - will be expanded with shipwreck recovery
+        this.addMessage('💀 YOUR SHIP HAS SUNK!');
+        this.addMessage(`Lost all cargo at (${this.player.x}, ${this.player.y})`);
+        this.addMessage(`Respawning at home port with dinghy... Gold safe: ${this.player.gold}g`);
+
+        // TODO Phase 2: Create shipwreck entity with cargo
+        // TODO Phase 2: Implement respawn at home port
+        // For now, just reset hull
+        this.player.shipHull = this.player.maxShipHull;
     }
 
     checkWeatherWarnings() {
