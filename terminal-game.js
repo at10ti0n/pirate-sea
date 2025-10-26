@@ -199,6 +199,13 @@ class TerminalGame {
         // Update game state
         this.turnCount++;
 
+        // Check for entity interactions at current position (Phase 1: MVP Loop)
+        // This handles automatic treasure collection and port visits
+        const entityInteraction = this.entityManager.checkPlayerPosition(this.player);
+        if (entityInteraction && entityInteraction.message) {
+            this.addMessage(entityInteraction.message);
+        }
+
         // Check if we need to spawn entities in new region (dynamic exploration)
         if (this.entityManager.shouldSpawnForPosition(this.player.x, this.player.y)) {
             const newEntities = this.entityManager.spawnEntitiesInRegion(this.player.x, this.player.y);
