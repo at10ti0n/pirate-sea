@@ -56,6 +56,8 @@ class TerminalGame {
         this.showInventory = false;
         this.showTrading = false;
         this.currentTradingPort = null;
+        this.showPortMenu = false; // Phase 1: MVP Loop
+        this.currentPort = null; // Phase 1: MVP Loop
         this.criticalWarningShown = false;
         this.lastWeatherWarning = null;
 
@@ -81,22 +83,28 @@ class TerminalGame {
             process.stdin.setRawMode(true);
         }
 
-        // Handle line input for trading
+        // Handle line input for trading and port menu (Phase 1: MVP Loop)
         this.rl.on('line', (input) => {
-            if (this.showTrading && input.trim().length > 0) {
+            if (this.showPortMenu && input.trim().length > 0) {
+                this.handlePortMenuCommand(input);
+                this.render();
+            } else if (this.showTrading && input.trim().length > 0) {
                 this.handleTradingCommand(input);
                 this.render();
             }
         });
 
         process.stdin.on('keypress', (str, key) => {
-            // Don't handle key presses if we're in trading mode and typing
-            if (!this.showTrading) {
+            // Don't handle key presses if we're in menu mode and typing (Phase 1: MVP Loop)
+            if (!this.showTrading && !this.showPortMenu) {
                 this.handleKeyPress(key);
             } else {
-                // Only handle 't' to close trading in trading mode
-                if (key && key.name === 't') {
+                // Handle toggle keys to close menus
+                if (key && key.name === 't' && this.showTrading) {
                     this.openTrading(); // Toggle off
+                    this.render();
+                } else if (key && key.name === 'p' && this.showPortMenu) {
+                    this.openPortMenu(); // Toggle off
                     this.render();
                 }
             }
@@ -133,10 +141,10 @@ class TerminalGame {
 
         this.running = true;
         this.addMessage('Welcome to Pirate Sea! Use WASD to move, B to board/disembark, Q to quit.');
-        this.addMessage('Press G to gather resources, I to view inventory, T to trade, R to repair at ports.');
-        this.addMessage('Press C to cook food, E to eat food, X to examine current tile.');
-        this.addMessage('A ship has been placed nearby for you to use!');
-        this.addMessage(`Starting gold: ${this.player.gold}g | World seed: ${this.mapGenerator.seed}`);
+        this.addMessage('Press G to gather resources, I to view cargo, P for port services.');
+        this.addMessage('Press T to trade resources, C to cook, E to eat, X to examine.');
+        this.addMessage('Your starting dinghy has been placed nearby - explore and find treasure!');
+        this.addMessage(`Starting gold: ${this.player.gold}g | Ship: ${this.player.currentShip} | Cargo: 0/${this.player.maxCargoSpace}`);
         this.render();
     }
 
@@ -170,6 +178,9 @@ class TerminalGame {
                 break;
             case 't':
                 this.openTrading();
+                break;
+            case 'p':
+                this.openPortMenu();
                 break;
             case 'r':
                 this.repairShip();
@@ -299,9 +310,9 @@ class TerminalGame {
     toggleInventory() {
         this.showInventory = !this.showInventory;
         if (this.showInventory) {
-            this.addMessage('Inventory opened');
+            this.addMessage('Cargo hold opened');
         } else {
-            this.addMessage('Inventory closed');
+            this.addMessage('Cargo hold closed');
         }
     }
 
@@ -788,6 +799,223 @@ class TerminalGame {
         }
     }
 
+    // ===== PHASE 1: MVP LOOP - PORT MENU SYSTEM =====
+
+    openPortMenu() {
+        // Check if player is at a port and on foot
+        if (this.player.mode !== 'foot') {
+            this.addMessage('You must disembark to visit port services!');
+            return;
+        }
+
+        const port = this.entityManager.getEntityAt(this.player.x, this.player.y);
+
+        if (!port || port.type !== 'port') {
+            this.addMessage('You must be at a port! (Stand on P)');
+            return;
+        }
+
+        this.showPortMenu = !this.showPortMenu;
+        if (this.showPortMenu) {
+            this.currentPort = port;
+            const portName = port.portName || 'Port';
+            const isHome = this.player.isAtHomePort();
+            const label = isHome ? `${portName} (HOME PORT)` : portName;
+            this.addMessage(`Opened port services at ${label}`);
+        } else {
+            this.currentPort = null;
+            this.addMessage('Closed port services');
+        }
+    }
+
+    renderPortMenu() {
+        if (!this.currentPort) return '';
+
+        const port = this.currentPort;
+        const portName = port.portName || 'Port';
+        const isHome = this.player.isAtHomePort();
+
+        let output = '\n';
+        output += '='.repeat(60) + '\n';
+        output += `  ${portName.toUpperCase()}`;
+        if (isHome) output += ' - HOME PORT';
+        output += '\n';
+        output += '='.repeat(60) + '\n';
+
+        const cargoSummary = this.player.getCargoSummary();
+        const shipStats = this.player.getShipStats();
+        const distance = isHome ? 0 : Math.floor(this.player.getDistanceToHome() || 0);
+
+        output += `Gold: ${this.player.gold}g | Ship: ${shipStats.type} | Cargo: ${cargoSummary.weight}/${cargoSummary.maxWeight}\n`;
+        output += `Hull: ${shipStats.hull}/${shipStats.maxHull} HP`;
+        if (!isHome) {
+            output += ` | Distance from home: ${distance} tiles`;
+        }
+        output += '\n\n';
+
+        output += 'PORT SERVICES:\n';
+        output += '-'.repeat(60) + '\n';
+        output += '1. MERCHANT - Sell Treasure\n';
+        output += '2. SHIPYARD - Buy Ships & Repair\n';
+        output += '3. Leave Port\n\n';
+
+        // Show cargo contents
+        if (cargoSummary.count > 0) {
+            output += 'CARGO HOLD:\n';
+            output += '-'.repeat(60) + '\n';
+            const treasures = this.player.cargoHold.filter(item => item.type === 'treasure');
+            if (treasures.length > 0) {
+                let totalValue = 0;
+                treasures.forEach((treasure, i) => {
+                    output += `${i + 1}. ${treasure.name} (${treasure.rarity}) - ${treasure.value}g [${treasure.weight}]\n`;
+                    totalValue += treasure.value;
+                });
+                output += `Total treasure value: ${totalValue}g\n`;
+            }
+            output += '\n';
+        } else {
+            output += 'Cargo hold empty.\n\n';
+        }
+
+        output += 'Commands: 1=Merchant, 2=Shipyard, 3=Leave, P=Close\n';
+        return output;
+    }
+
+    handlePortMenuCommand(input) {
+        const command = input.trim();
+
+        if (command === '1') {
+            this.openMerchant();
+        } else if (command === '2') {
+            this.openShipyard();
+        } else if (command === '3' || command.toLowerCase() === 'leave') {
+            this.showPortMenu = false;
+            this.currentPort = null;
+            this.addMessage('Left port services');
+        } else {
+            this.addMessage('Invalid command. Use 1, 2, or 3');
+        }
+    }
+
+    openMerchant() {
+        const treasures = this.player.cargoHold.filter(item => item.type === 'treasure');
+
+        if (treasures.length === 0) {
+            this.addMessage('No treasure to sell!');
+            return;
+        }
+
+        // Sell all treasure
+        const result = this.entityManager.sellTreasure(this.player, 'all');
+        this.addMessage(result.message);
+    }
+
+    openShipyard() {
+        if (!this.entityManager.shipSystem) {
+            this.addMessage('Shipyard not available!');
+            return;
+        }
+
+        const availableShips = this.entityManager.shipSystem.getAvailableShips(this.player.gold);
+        const damage = this.player.maxShipHull - this.player.shipHull;
+
+        let output = '\n';
+        output += '='.repeat(60) + '\n';
+        output += '  SHIPYARD\n';
+        output += '='.repeat(60) + '\n';
+        output += `Current Ship: ${this.player.currentShip} | Hull: ${this.player.shipHull}/${this.player.maxShipHull} HP\n`;
+        output += `Your Gold: ${this.player.gold}g\n\n`;
+
+        // Repair option
+        if (damage > 0) {
+            const repairCost = damage * 2;
+            output += `REPAIR: Restore ${damage} HP for ${repairCost}g (R to repair)\n\n`;
+        } else {
+            output += 'Ship at full hull.\n\n';
+        }
+
+        // Available ships
+        output += 'AVAILABLE SHIPS:\n';
+        output += '-'.repeat(60) + '\n';
+        availableShips.forEach((ship, i) => {
+            const canAfford = ship.canAfford ? '✓' : '✗';
+            output += `${i + 1}. ${ship.name} - ${ship.cost}g ${canAfford}\n`;
+            output += `   Cargo: ${ship.maxCargo} | Hull: ${ship.maxHull} | Speed: ${ship.speed}x\n`;
+            output += `   ${ship.description}\n`;
+        });
+
+        output += '\nCommands: 1-5=Buy ship, R=Repair, ESC=Back\n';
+        console.log(output);
+
+        // Get input
+        this.rl.question('> ', (answer) => {
+            this.handleShipyardCommand(answer.trim());
+            this.render();
+        });
+    }
+
+    handleShipyardCommand(input) {
+        if (input.toLowerCase() === 'r') {
+            const result = this.entityManager.repairShip(this.player, 2);
+            this.addMessage(result.message);
+            return;
+        }
+
+        const shipIndex = parseInt(input) - 1;
+        if (isNaN(shipIndex)) {
+            this.addMessage('Invalid command');
+            return;
+        }
+
+        const availableShips = this.entityManager.shipSystem.getAvailableShips(this.player.gold);
+        if (shipIndex < 0 || shipIndex >= availableShips.length) {
+            this.addMessage('Invalid ship number');
+            return;
+        }
+
+        const selectedShip = availableShips[shipIndex];
+        const result = this.entityManager.buyShip(this.player, selectedShip.key);
+        this.addMessage(result.message);
+    }
+
+    renderCargoInventory() {
+        const cargoSummary = this.player.getCargoSummary();
+        const shipStats = this.player.getShipStats();
+
+        let output = '\n';
+        output += '='.repeat(60) + '\n';
+        output += '  CARGO HOLD\n';
+        output += '='.repeat(60) + '\n';
+        output += `Ship: ${shipStats.type} | Cargo: ${cargoSummary.weight}/${cargoSummary.maxWeight} units\n`;
+        output += `Total value: ${this.player.getCargoValue()}g\n\n`;
+
+        if (cargoSummary.count === 0) {
+            output += 'Cargo hold is empty.\n';
+        } else {
+            output += 'CARGO:\n';
+            output += '-'.repeat(60) + '\n';
+            this.player.cargoHold.forEach((item, i) => {
+                if (item.type === 'treasure') {
+                    const raritySymbol = {
+                        common: '○',
+                        uncommon: '◐',
+                        rare: '●',
+                        legendary: '★'
+                    }[item.rarity] || '○';
+                    output += `${i + 1}. ${raritySymbol} ${item.name} - ${item.value}g [weight: ${item.weight}]\n`;
+                    if (item.foundAt) {
+                        output += `   Found at (${item.foundAt.x}, ${item.foundAt.y})\n`;
+                    }
+                } else {
+                    output += `${i + 1}. ${item.name} (${item.type})\n`;
+                }
+            });
+        }
+
+        output += '\nPress I to close\n';
+        return output;
+    }
+
     render() {
         console.clear();
 
@@ -890,27 +1118,42 @@ class TerminalGame {
         const health = this.player.getHealth();
         const hungerStatus = this.foodSystem.getHungerStatus(this.player.hunger);
 
+        // Phase 1: MVP Loop - Enhanced status display
+        const cargoSummary = this.player.getCargoSummary();
+        const shipStats = this.player.getShipStats();
+        const distanceToHome = this.player.getDistanceToHome();
+
         console.log(`\nPosition: (${this.player.x}, ${this.player.y}) | Mode: ${this.player.mode} | Gold: ${this.player.gold}g`);
         console.log(`Health: ${health.current}/${health.max} HP | Hunger: ${Math.floor(this.player.hunger)}% (${hungerStatus.message})`);
-        console.log(`Time: ${timeStr} (${timePeriod}) | Visibility: ${viewRadius} tiles`);
+        console.log(`Ship: ${shipStats.type} | Hull: ${shipStats.hull}/${shipStats.maxHull} HP | Cargo: ${cargoSummary.weight}/${cargoSummary.maxWeight}`);
 
-        // Show ship HP if player has a ship
-        if (this.player.shipDurability) {
-            const condition = this.entityManager.getShipCondition({ durability: this.player.shipDurability });
-            console.log(`Ship: ${this.player.shipDurability.current}/${this.player.shipDurability.max} HP (${condition})`);
+        if (distanceToHome !== null) {
+            console.log(`Home: ${Math.floor(distanceToHome)} tiles away | Time: ${timeStr} (${timePeriod})`);
+        } else {
+            console.log(`Time: ${timeStr} (${timePeriod}) | Visibility: ${viewRadius} tiles`);
         }
 
-        console.log('Controls: WASD=Move, B=Board/Disembark, G=Gather, I=Inventory, T=Trade, R=Repair, C=Cook, E=Eat, X=Examine, Q=Quit');
+        console.log('Controls: WASD=Move, B=Board/Disembark, I=Cargo, P=Port, G=Gather, T=Trade, C=Cook, E=Eat, X=Examine, Q=Quit');
+
+        // Phase 1: Display port menu if active
+        if (this.showPortMenu) {
+            console.log(this.renderPortMenu());
+            console.log('\nType your command and press Enter:');
+        }
 
         // Display trading if active
-        if (this.showTrading) {
+        if (this.showTrading && !this.showPortMenu) {
             console.log(this.renderTrading());
             console.log('\nType your command and press Enter:');
         }
 
-        // Display inventory if toggled
-        if (this.showInventory && !this.showTrading) {
-            console.log('\n' + this.playerInventory.getInventoryDisplayTerminal(this.resourceManager));
+        // Display cargo inventory if toggled (Phase 1: MVP Loop)
+        if (this.showInventory && !this.showTrading && !this.showPortMenu) {
+            console.log(this.renderCargoInventory());
+
+            // Also show resource inventory below cargo
+            console.log('\n--- Resources ---');
+            console.log(this.playerInventory.getInventoryDisplayTerminal(this.resourceManager));
 
             // Display food inventory
             const foodInventory = this.player.getFoodInventory();
