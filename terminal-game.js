@@ -1260,11 +1260,15 @@ class TerminalGame {
         // Check for treasure maps
         const maps = this.player.cargoHold.filter(item => item.type === 'treasure_map');
 
-        // Check if current position matches any map
+        // Check if current position matches any map (allow 3 tile tolerance)
         for (let i = 0; i < maps.length; i++) {
             const map = maps[i];
-            if (map.targetX === this.player.x && map.targetY === this.player.y) {
-                // Found the treasure!
+            const dx = Math.abs(map.targetX - this.player.x);
+            const dy = Math.abs(map.targetY - this.player.y);
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance <= 3) {
+                // Found the treasure (close enough!)
                 this.addMessage(`🗺️ This is the location from your map!`);
                 this.addMessage(`⛏️ Digging...`);
 

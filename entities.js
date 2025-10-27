@@ -735,11 +735,40 @@ class EntityManager {
         this.removeEntity(bottle.x, bottle.y);
 
         if (bottle.containsMap) {
-            // Generate treasure map
+            // Generate treasure map pointing to land
             const distance = 50 + Math.floor(this.seededRandom.random() * 200); // 50-250 tiles away
             const angle = this.seededRandom.random() * Math.PI * 2;
-            const targetX = Math.round(player.x + Math.cos(angle) * distance);
-            const targetY = Math.round(player.y + Math.sin(angle) * distance);
+            const initialX = Math.round(player.x + Math.cos(angle) * distance);
+            const initialY = Math.round(player.y + Math.sin(angle) * distance);
+
+            // Find nearest land tile (search in expanding radius)
+            let targetX = initialX;
+            let targetY = initialY;
+            let foundLand = false;
+
+            for (let radius = 0; radius < 20 && !foundLand; radius++) {
+                for (let dx = -radius; dx <= radius && !foundLand; dx++) {
+                    for (let dy = -radius; dy <= radius && !foundLand; dy++) {
+                        if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
+
+                        const checkX = initialX + dx;
+                        const checkY = initialY + dy;
+                        const tile = this.mapGenerator.getTileAt(checkX, checkY);
+
+                        if (tile && tile.biome !== 'ocean' && tile.biome !== 'deep_ocean' && tile.walkable) {
+                            targetX = checkX;
+                            targetY = checkY;
+                            foundLand = true;
+                        }
+                    }
+                }
+            }
+
+            // If no land found, default to original location (shouldn't happen often)
+            if (!foundLand) {
+                targetX = initialX;
+                targetY = initialY;
+            }
 
             // Determine treasure quality based on distance
             let treasureRarity;
