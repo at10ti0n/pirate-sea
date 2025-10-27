@@ -200,6 +200,9 @@ class TerminalGame {
             case 'm':
                 this.viewMaps();
                 break;
+            case 'h':
+                this.digForTreasure();
+                break;
         }
 
         // Update game state
@@ -1217,6 +1220,113 @@ class TerminalGame {
         console.log(output);
 
         this.addMessage(`Viewing ${maps.length} treasure map(s)`);
+    }
+
+    // Phase 3: Digging for Treasure
+    digForTreasure() {
+        // Must be on foot to dig
+        if (this.player.mode !== 'foot') {
+            this.addMessage('You must be on land to dig! (Unboard your ship first)');
+            return;
+        }
+
+        // Check if on land
+        const tile = this.mapGenerator.getTileAt(this.player.x, this.player.y);
+        if (!tile || tile.biome === 'ocean' || tile.biome === 'deep_ocean') {
+            this.addMessage('You can\'t dig in water!');
+            return;
+        }
+
+        // Check for treasure maps
+        const maps = this.player.cargoHold.filter(item => item.type === 'treasure_map');
+
+        // Check if current position matches any map
+        for (let i = 0; i < maps.length; i++) {
+            const map = maps[i];
+            if (map.targetX === this.player.x && map.targetY === this.player.y) {
+                // Found the treasure!
+                this.addMessage(`🗺️ This is the location from your map!`);
+                this.addMessage(`⛏️ Digging...`);
+
+                // Generate treasure based on rarity
+                let treasureItem;
+                if (this.entityManager.treasureSystem) {
+                    // Use treasure system with map's rarity
+                    const rarityValues = {
+                        'uncommon': 0.3,
+                        'rare': 0.6,
+                        'legendary': 0.9
+                    };
+                    treasureItem = this.entityManager.treasureSystem.generateTreasure({
+                        position: { x: this.player.x, y: this.player.y },
+                        rarityBoost: rarityValues[map.treasureRarity] || 0.5
+                    });
+                } else {
+                    // Fallback treasure by rarity
+                    const treasureValues = {
+                        'uncommon': { name: 'Jeweled Goblet', value: 150, weight: 2, rarity: 'uncommon' },
+                        'rare': { name: 'Ancient Crown', value: 350, weight: 3, rarity: 'rare' },
+                        'legendary': { name: 'Aztec Gold', value: 800, weight: 5, rarity: 'legendary' }
+                    };
+                    const template = treasureValues[map.treasureRarity] || treasureValues['uncommon'];
+                    treasureItem = {
+                        type: 'treasure',
+                        ...template
+                    };
+                }
+
+                // Try to add to cargo
+                const result = this.player.addToCargo(treasureItem);
+
+                if (result.success) {
+                    this.addMessage(`💎 Found buried treasure: ${treasureItem.name}! (${treasureItem.value}g)`);
+                    this.addMessage(`🗺️ The treasure map crumbles to dust...`);
+
+                    // Remove the map from cargo
+                    const mapIndex = this.player.cargoHold.indexOf(map);
+                    if (mapIndex !== -1) {
+                        this.player.cargoHold.splice(mapIndex, 1);
+                    }
+                } else {
+                    this.addMessage(`💎 Found ${treasureItem.name}! But cargo is full!`);
+                    this.addMessage(`The treasure remains buried. Clear cargo space and dig again.`);
+                }
+                return;
+            }
+        }
+
+        // No map for this location - try scavenging
+        this.addMessage(`⛏️ Digging around...`);
+
+        // 10% chance to find common treasure
+        const seededRandom = this.mapGenerator.seededRandom;
+        if (seededRandom.random() < 0.1) {
+            let treasureItem;
+            if (this.entityManager.treasureSystem) {
+                treasureItem = this.entityManager.treasureSystem.generateTreasure({
+                    position: { x: this.player.x, y: this.player.y },
+                    rarityBoost: -0.3 // Lower rarity for scavenging
+                });
+            } else {
+                treasureItem = {
+                    type: 'treasure',
+                    name: 'Gold Coins',
+                    value: 30,
+                    weight: 1,
+                    rarity: 'common'
+                };
+            }
+
+            const result = this.player.addToCargo(treasureItem);
+
+            if (result.success) {
+                this.addMessage(`✨ Lucky find! Discovered ${treasureItem.name}! (${treasureItem.value}g)`);
+            } else {
+                this.addMessage(`Found ${treasureItem.name} but cargo is full!`);
+            }
+        } else {
+            this.addMessage(`Found nothing but dirt and rocks.`);
+        }
     }
 
     renderCargoInventory() {
