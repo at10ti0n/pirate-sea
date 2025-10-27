@@ -360,6 +360,7 @@ class TerminalGame {
         }
     }
 
+    // Phase 3: Ship Repair (updated for Phase 2 hull system)
     repairShip() {
         // Check if player is at a port
         const port = this.entityManager.getEntityAt(this.player.x, this.player.y);
@@ -369,40 +370,44 @@ class TerminalGame {
             return;
         }
 
-        if (!port.economy) {
-            this.addMessage('This port has no shipyard!');
+        // Check if player has a ship (using Phase 2 hull system)
+        if (this.player.mode !== 'ship' || !this.player.currentShip) {
+            this.addMessage('You don\'t have a ship to repair! (Board a ship first)');
             return;
         }
 
-        // Check if player has a ship
-        if (!this.player.shipDurability) {
-            this.addMessage('You don\'t have a ship to repair!');
+        // Calculate hull damage
+        const maxHull = this.player.maxShipHull;
+        const currentHull = this.player.shipHull;
+        const damage = maxHull - currentHull;
+
+        if (damage === 0) {
+            this.addMessage(`Your ${this.player.currentShip} is already at full health! (${currentHull}/${maxHull} HP)`);
             return;
         }
 
-        // Create a temporary ship object for repair calculations
-        const tempShip = { durability: this.player.shipDurability };
+        // Calculate repair cost (2g per hull point)
+        const REPAIR_COST_PER_HP = 2;
+        const totalCost = damage * REPAIR_COST_PER_HP;
 
-        // Get repair info
-        const repairInfo = this.economyManager.getRepairInfo(tempShip, port);
-
-        if (!repairInfo.canRepair) {
-            this.addMessage('Your ship is already at full health!');
+        // Check if player has enough gold
+        if (this.player.gold < totalCost) {
+            this.addMessage(`Repair costs ${totalCost}g (${damage} HP @ ${REPAIR_COST_PER_HP}g/HP). You have ${this.player.gold}g.`);
+            this.addMessage(`Not enough gold! Need ${totalCost - this.player.gold}g more.`);
             return;
         }
 
         // Execute repair
-        const result = this.economyManager.executeRepairTransaction(
-            this.player,
-            tempShip,
-            port
-        );
+        this.player.shipHull = maxHull;
+        this.player.gold -= totalCost;
 
-        if (result.success) {
-            this.addMessage(`Repaired ${result.hpRepaired} HP for ${result.cost}g! Ship: ${result.newHp}/${result.maxHp} HP`);
-        } else {
-            this.addMessage(`Repair failed: ${result.error} (Cost: ${repairInfo.totalCost}g)`);
-        }
+        // Reset hull warnings
+        this.criticalHullWarningShown = false;
+        this.moderateHullWarningShown = false;
+
+        this.addMessage(`⚒️ Repaired ${damage} HP for ${totalCost}g!`);
+        this.addMessage(`${this.player.currentShip} hull: ${maxHull}/${maxHull} HP (Full health)`);
+        this.addMessage(`Gold remaining: ${this.player.gold}g`);
     }
 
     cookFood() {
