@@ -57,6 +57,7 @@ class TerminalGame {
         this.showTrading = false;
         this.currentTradingPort = null;
         this.showPortMenu = false; // Phase 1: MVP Loop
+        this.showMapViewer = false; // Phase 3: Map viewer
         this.currentPort = null; // Phase 1: MVP Loop
         this.criticalWarningShown = false;
         this.lastWeatherWarning = null;
@@ -99,7 +100,7 @@ class TerminalGame {
 
         process.stdin.on('keypress', (str, key) => {
             // Don't handle key presses if we're in menu mode and typing (Phase 1: MVP Loop)
-            if (!this.showTrading && !this.showPortMenu) {
+            if (!this.showTrading && !this.showPortMenu && !this.showMapViewer) {
                 this.handleKeyPress(key);
             } else {
                 // Handle toggle keys to close menus
@@ -108,6 +109,9 @@ class TerminalGame {
                     this.render();
                 } else if (key && key.name === 'p' && this.showPortMenu) {
                     this.openPortMenu(); // Toggle off
+                    this.render();
+                } else if (key && key.name === 'm' && this.showMapViewer) {
+                    this.viewMaps(); // Toggle off
                     this.render();
                 }
             }
@@ -1189,6 +1193,25 @@ class TerminalGame {
             return;
         }
 
+        // Toggle map viewer
+        this.showMapViewer = !this.showMapViewer;
+        if (this.showMapViewer) {
+            this.addMessage(`Viewing ${maps.length} treasure map(s)`);
+        } else {
+            this.addMessage('Closed map viewer');
+        }
+    }
+
+    renderMapViewer() {
+        if (!this.showMapViewer) return '';
+
+        const maps = this.player.cargoHold.filter(item => item.type === 'treasure_map');
+
+        if (maps.length === 0) {
+            this.showMapViewer = false;
+            return '';
+        }
+
         let output = '\n';
         output += '='.repeat(60) + '\n';
         output += '  TREASURE MAPS\n';
@@ -1215,11 +1238,8 @@ class TerminalGame {
             output += `  ${map.description}\n\n`;
         });
 
-        output += 'Navigate to the coordinates and press M to view this menu again\n';
-        output += 'Use the Dig command (H key) when you reach the location\n';
-        console.log(output);
-
-        this.addMessage(`Viewing ${maps.length} treasure map(s)`);
+        output += 'Commands: M=Close map viewer, H=Dig (when at location)\n';
+        return output;
     }
 
     // Phase 3: Digging for Treasure
@@ -1506,12 +1526,17 @@ class TerminalGame {
             console.log(`Time: ${timeStr} (${timePeriod}) | Visibility: ${viewRadius} tiles`);
         }
 
-        console.log('Controls: WASD=Move, B=Board/Disembark, I=Cargo, P=Port, G=Gather, T=Trade, C=Cook, E=Eat, X=Examine, Q=Quit');
+        console.log('Controls: WASD=Move, B=Board/Disembark, I=Cargo, P=Port, M=Maps, H=Dig, G=Gather, T=Trade, C=Cook, E=Eat, X=Examine, Q=Quit');
 
         // Phase 1: Display port menu if active
         if (this.showPortMenu) {
             console.log(this.renderPortMenu());
             console.log('\nType your command and press Enter:');
+        }
+
+        // Phase 3: Display map viewer if active
+        if (this.showMapViewer && !this.showPortMenu) {
+            console.log(this.renderMapViewer());
         }
 
         // Display trading if active
