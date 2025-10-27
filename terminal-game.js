@@ -197,6 +197,9 @@ class TerminalGame {
             case 'x':
                 this.examineTile();
                 break;
+            case 'm':
+                this.viewMaps();
+                break;
         }
 
         // Update game state
@@ -1039,27 +1042,39 @@ class TerminalGame {
         output += '-'.repeat(60) + '\n';
         output += '1. MERCHANT - Sell Treasure\n';
         output += '2. SHIPYARD - Buy Ships & Repair\n';
-        output += '3. Leave Port\n\n';
+        output += '3. MAPS - View Treasure Maps\n';
+        output += '4. Leave Port\n\n';
 
         // Show cargo contents
         if (cargoSummary.count > 0) {
             output += 'CARGO HOLD:\n';
             output += '-'.repeat(60) + '\n';
+
+            // Show treasures
             const treasures = this.player.cargoHold.filter(item => item.type === 'treasure');
             if (treasures.length > 0) {
+                output += 'TREASURE:\n';
                 let totalValue = 0;
                 treasures.forEach((treasure, i) => {
-                    output += `${i + 1}. ${treasure.name} (${treasure.rarity}) - ${treasure.value}g [${treasure.weight}]\n`;
+                    output += `  ${treasure.name} (${treasure.rarity}) - ${treasure.value}g [${treasure.weight}]\n`;
                     totalValue += treasure.value;
                 });
-                output += `Total treasure value: ${totalValue}g\n`;
+                output += `  Total: ${totalValue}g\n`;
             }
+
+            // Show treasure maps
+            const maps = this.player.cargoHold.filter(item => item.type === 'treasure_map');
+            if (maps.length > 0) {
+                output += `\nTREASURE MAPS: ${maps.length}\n`;
+                output += '  (View in Maps menu - option 3)\n';
+            }
+
             output += '\n';
         } else {
             output += 'Cargo hold empty.\n\n';
         }
 
-        output += 'Commands: 1=Merchant, 2=Shipyard, 3=Leave, P=Close\n';
+        output += 'Commands: 1=Merchant, 2=Shipyard, 3=Maps, 4=Leave, P=Close\n';
         return output;
     }
 
@@ -1070,12 +1085,14 @@ class TerminalGame {
             this.openMerchant();
         } else if (command === '2') {
             this.openShipyard();
-        } else if (command === '3' || command.toLowerCase() === 'leave') {
+        } else if (command === '3') {
+            this.viewMaps();
+        } else if (command === '4' || command.toLowerCase() === 'leave') {
             this.showPortMenu = false;
             this.currentPort = null;
             this.addMessage('Left port services');
         } else {
-            this.addMessage('Invalid command. Use 1, 2, or 3');
+            this.addMessage('Invalid command. Use 1, 2, 3, or 4');
         }
     }
 
@@ -1158,6 +1175,48 @@ class TerminalGame {
         const selectedShip = availableShips[shipIndex];
         const result = this.entityManager.buyShip(this.player, selectedShip.key);
         this.addMessage(result.message);
+    }
+
+    // Phase 3: Map Viewer
+    viewMaps() {
+        const maps = this.player.cargoHold.filter(item => item.type === 'treasure_map');
+
+        if (maps.length === 0) {
+            this.addMessage('You have no treasure maps!');
+            return;
+        }
+
+        let output = '\n';
+        output += '='.repeat(60) + '\n';
+        output += '  TREASURE MAPS\n';
+        output += '='.repeat(60) + '\n';
+        output += `Current Location: (${this.player.x}, ${this.player.y})\n\n`;
+
+        maps.forEach((map, i) => {
+            const dx = map.targetX - this.player.x;
+            const dy = map.targetY - this.player.y;
+            const distance = Math.floor(Math.sqrt(dx * dx + dy * dy));
+
+            // Calculate direction
+            let direction = '';
+            if (Math.abs(dx) > Math.abs(dy)) {
+                direction = dx > 0 ? 'East' : 'West';
+            } else {
+                direction = dy > 0 ? 'South' : 'North';
+            }
+
+            output += `MAP #${i + 1}: ${map.treasureRarity.toUpperCase()} TREASURE\n`;
+            output += `  Location: (${map.targetX}, ${map.targetY})\n`;
+            output += `  Direction: ${direction}\n`;
+            output += `  Distance: ${distance} tiles\n`;
+            output += `  ${map.description}\n\n`;
+        });
+
+        output += 'Navigate to the coordinates and press M to view this menu again\n';
+        output += 'Use the Dig command (H key) when you reach the location\n';
+        console.log(output);
+
+        this.addMessage(`Viewing ${maps.length} treasure map(s)`);
     }
 
     renderCargoInventory() {
