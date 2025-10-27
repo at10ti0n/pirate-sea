@@ -62,6 +62,7 @@ class TerminalGame {
         this.lastWeatherWarning = null;
         this.criticalHullWarningShown = false; // Phase 2: Hull warnings
         this.moderateHullWarningShown = false; // Phase 2: Hull warnings
+        this.lastDangerLevel = 'unknown'; // Phase 2: Track danger zone changes
 
         // Initialize resource system
         this.resourceManager = null;
@@ -222,9 +223,11 @@ class TerminalGame {
         // Update fog of war based on player position (takes weather & time into account)
         this.fogOfWar.updateVisibility(this.player.x, this.player.y);
 
-        this.weatherManager.updateWeather(this.player.x, this.player.y);
+        // Phase 2: Pass player for distance-based weather spawning
+        this.weatherManager.updateWeather(this.player.x, this.player.y, this.player);
         this.applyWeatherEffects();
         this.checkWeatherWarnings();
+        this.checkDangerZone(); // Phase 2: Danger zone warnings
 
         this.render();
     }
@@ -724,6 +727,31 @@ class TerminalGame {
         }
     }
 
+    checkDangerZone() {
+        // Phase 2: Warn when entering new danger zones
+        if (this.player.mode !== 'ship') {
+            return;
+        }
+
+        const dangerInfo = this.player.getDangerLevel();
+
+        // Check if danger level changed
+        if (dangerInfo.level !== this.lastDangerLevel && dangerInfo.level !== 'unknown') {
+            const messages = {
+                safe: '🟢 Entering safe waters - storms unlikely',
+                moderate: '🟡 Weather worsening - storms possible',
+                dangerous: '🟠 DANGEROUS WATERS! Storms likely - consider returning to port!',
+                extreme: '🔴 EXTREME DANGER! Hurricane risk! Turn back now!'
+            };
+
+            if (messages[dangerInfo.level]) {
+                this.addMessage(messages[dangerInfo.level]);
+            }
+
+            this.lastDangerLevel = dangerInfo.level;
+        }
+    }
+
     renderTrading() {
         if (!this.currentTradingPort || !this.currentTradingPort.economy) return '';
 
@@ -1186,12 +1214,23 @@ class TerminalGame {
         const shipStats = this.player.getShipStats();
         const distanceToHome = this.player.getDistanceToHome();
 
+        // Phase 2: Danger level display
+        const dangerInfo = this.player.getDangerLevel();
+        const dangerIcons = {
+            safe: '🟢',
+            moderate: '🟡',
+            dangerous: '🟠',
+            extreme: '🔴',
+            unknown: '⚪'
+        };
+        const dangerIcon = dangerIcons[dangerInfo.level] || '⚪';
+
         console.log(`\nPosition: (${this.player.x}, ${this.player.y}) | Mode: ${this.player.mode} | Gold: ${this.player.gold}g`);
         console.log(`Health: ${health.current}/${health.max} HP | Hunger: ${Math.floor(this.player.hunger)}% (${hungerStatus.message})`);
         console.log(`Ship: ${shipStats.type} | Hull: ${shipStats.hull}/${shipStats.maxHull} HP | Cargo: ${cargoSummary.weight}/${cargoSummary.maxWeight}`);
 
         if (distanceToHome !== null) {
-            console.log(`Home: ${Math.floor(distanceToHome)} tiles away | Time: ${timeStr} (${timePeriod})`);
+            console.log(`Home: ${Math.floor(distanceToHome)} tiles ${dangerIcon} ${dangerInfo.level.toUpperCase()} | Time: ${timeStr} (${timePeriod})`);
         } else {
             console.log(`Time: ${timeStr} (${timePeriod}) | Visibility: ${viewRadius} tiles`);
         }
