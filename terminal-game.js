@@ -1411,10 +1411,21 @@ class TerminalGame {
                             if (entity.type === 'ship' && entity.durability) {
                                 char = this.entityManager.getShipIcon(entity);
                                 color = this.hexToAnsi(this.entityManager.getShipColor(entity));
+                            } else if (entity.char && entity.color) {
+                                // Entity has direct char/color properties (bottles, shipwrecks, etc.)
+                                char = entity.char;
+                                color = this.hexToAnsi(entity.color);
                             } else {
+                                // Look up in entityTypes
                                 const entityInfo = this.entityManager.entityTypes[entity.type];
-                                char = entityInfo.char;
-                                color = this.hexToAnsi(entityInfo.color);
+                                if (entityInfo) {
+                                    char = entityInfo.char;
+                                    color = this.hexToAnsi(entityInfo.color);
+                                } else {
+                                    // Fallback for unknown entity types
+                                    char = '?';
+                                    color = this.hexToAnsi('#ffffff');
+                                }
                             }
                             line += `${color}${char}\x1b[0m`;
                         } else if (hasWeather && isVisible) {
