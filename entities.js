@@ -162,6 +162,7 @@ class EntityManager {
         this.spawnPorts(regionCenterX, regionCenterY, 60);
         this.spawnTreasure(regionCenterX, regionCenterY, 60);
         this.spawnShips(regionCenterX, regionCenterY, 60);
+        this.spawnBottles(regionCenterX, regionCenterY, 60); // Phase 3
 
         const spawnedCount = this.entities.size - initialCount;
         console.log(`Spawned ${spawnedCount} new entities in region ${regionKey}`);
@@ -185,6 +186,7 @@ class EntityManager {
         this.spawnPorts(playerX, playerY);
         this.spawnTreasure(playerX, playerY);
         this.spawnShips(playerX, playerY);
+        this.spawnBottles(playerX, playerY); // Phase 3
 
         console.log(`Spawned ${this.entities.size} entities total`);
     }
@@ -517,11 +519,11 @@ class EntityManager {
     spawnShips(centerX, centerY, radius = 60) {
         const shipCount = 20; // Ships for 80% water world
         const oceanTiles = this.getAvailableOceanTiles(centerX, centerY, radius);
-        
+
         for (let i = 0; i < shipCount && oceanTiles.length > 0; i++) {
             const randomIndex = Math.floor(this.seededRandom.random() * oceanTiles.length);
             const tile = oceanTiles[randomIndex];
-            
+
             const ship = {
                 type: 'ship',
                 x: tile.x,
@@ -530,14 +532,43 @@ class EntityManager {
                 color: '#8b4513',
                 durability: this.createShipDurability(100)
             };
-            
+
             this.addEntity(ship);
             oceanTiles.splice(randomIndex, 1); // Remove used tile
         }
-        
+
         console.log(`Spawned ${Math.min(shipCount, oceanTiles.length)} ships`);
     }
-    
+
+    // Phase 3: Floating Bottles
+    spawnBottles(centerX, centerY, radius = 60) {
+        const bottleCount = 8; // Fewer bottles than treasure (rare finds)
+        const oceanTiles = this.getAvailableOceanTiles(centerX, centerY, radius);
+
+        for (let i = 0; i < bottleCount && oceanTiles.length > 0; i++) {
+            const randomIndex = Math.floor(this.seededRandom.random() * oceanTiles.length);
+            const tile = oceanTiles[randomIndex];
+
+            // 60% treasure map, 40% rare treasure
+            const containsMap = this.seededRandom.random() < 0.6;
+
+            const bottle = {
+                type: 'bottle',
+                x: tile.x,
+                y: tile.y,
+                char: 'B',
+                color: '#3498db', // Blue
+                containsMap: containsMap,
+                description: containsMap ? 'A floating bottle (contains a map)' : 'A floating bottle (contains treasure)'
+            };
+
+            this.addEntity(bottle);
+            oceanTiles.splice(randomIndex, 1); // Remove used tile
+        }
+
+        console.log(`Spawned ${Math.min(bottleCount, oceanTiles.length)} bottles`);
+    }
+
     getAvailableWalkableTiles(centerX = 0, centerY = 0, radius = 60) {
         const walkableTiles = [];
         
@@ -695,6 +726,87 @@ class EntityManager {
                 success: true,
                 message: `⚓ Salvaged ${itemsRecovered} items (~${totalValue}g). ${itemsLeft} items remain (cargo full)`
             };
+        }
+    }
+
+    // Phase 3: Bottle Collection (while on ship)
+    collectBottle(bottle, player) {
+        // Remove bottle from map
+        this.removeEntity(bottle.x, bottle.y);
+
+        if (bottle.containsMap) {
+            // Generate treasure map
+            const distance = 50 + Math.floor(this.seededRandom.random() * 200); // 50-250 tiles away
+            const angle = this.seededRandom.random() * Math.PI * 2;
+            const targetX = Math.round(player.x + Math.cos(angle) * distance);
+            const targetY = Math.round(player.y + Math.sin(angle) * distance);
+
+            // Determine treasure quality based on distance
+            let treasureRarity;
+            if (distance < 100) treasureRarity = 'uncommon';
+            else if (distance < 150) treasureRarity = 'rare';
+            else treasureRarity = 'legendary';
+
+            const treasureMap = {
+                type: 'treasure_map',
+                name: 'Treasure Map',
+                targetX: targetX,
+                targetY: targetY,
+                treasureRarity: treasureRarity,
+                distance: distance,
+                weight: 0, // Maps are weightless
+                value: 0, // No sell value
+                description: `A worn map showing treasure at (${targetX}, ${targetY}) - ${Math.floor(distance)} tiles away`
+            };
+
+            const result = player.addToCargo(treasureMap);
+
+            if (result.success) {
+                return {
+                    success: true,
+                    message: `🍾 Found a bottle! It contains a treasure map! Location: (${targetX}, ${targetY})`
+                };
+            } else {
+                // Cargo full, map is lost
+                return {
+                    success: false,
+                    message: `🍾 Found a bottle with a map, but cargo is full! Map lost...`
+                };
+            }
+        } else {
+            // Generate rare treasure
+            let treasureItem;
+            if (this.treasureSystem) {
+                // Use treasure system with higher rarity
+                treasureItem = this.treasureSystem.generateTreasure({
+                    position: { x: bottle.x, y: bottle.y },
+                    rarityBoost: 0.5 // Increase chance of rare items
+                });
+            } else {
+                // Fallback rare treasure
+                treasureItem = {
+                    type: 'treasure',
+                    name: 'Jeweled Goblet',
+                    value: 150,
+                    weight: 2,
+                    rarity: 'rare'
+                };
+            }
+
+            const result = player.addToCargo(treasureItem);
+
+            if (result.success) {
+                return {
+                    success: true,
+                    message: `🍾 Found a bottle! It contains ${treasureItem.name}! (${treasureItem.value}g)`
+                };
+            } else {
+                // Cargo full, item is lost
+                return {
+                    success: false,
+                    message: `🍾 Found a bottle with ${treasureItem.name}, but cargo is full! Lost at sea...`
+                };
+            }
         }
     }
     
@@ -882,9 +994,19 @@ class EntityManager {
     // Check if player is standing on an entity
     checkPlayerPosition(player) {
         const entity = this.getEntityAt(player.x, player.y);
-        if (entity && player.getMode() === 'foot') {
+
+        if (!entity) return null;
+
+        // Phase 3: Bottles can be collected while on ship
+        if (player.getMode() === 'ship' && entity.type === 'bottle') {
+            return this.collectBottle(entity, player);
+        }
+
+        // Foot mode interactions (treasure, ports, shipwrecks)
+        if (player.getMode() === 'foot') {
             return this.interactWithEntity(player.x, player.y, player);
         }
+
         return null;
     }
 
