@@ -599,6 +599,9 @@ class EntityManager {
             case 'ship':
                 return { success: false, message: 'Use the board command to board the ship.' };
 
+            case 'shipwreck':
+                return this.salvageShipwreck(entity, player);
+
             default:
                 return { success: false, message: 'Unknown entity type.' };
         }
@@ -641,6 +644,56 @@ class EntityManager {
             return {
                 success: false,
                 message: `Cannot pick up ${treasureItem.name} - ${result.message}`
+            };
+        }
+    }
+
+    // Phase 2: Shipwreck Salvage
+    salvageShipwreck(shipwreck, player) {
+        if (!shipwreck.cargo || shipwreck.cargo.length === 0) {
+            // Empty shipwreck
+            this.removeEntity(shipwreck.x, shipwreck.y);
+            return {
+                success: false,
+                message: '⚓ The wreckage is empty - already looted'
+            };
+        }
+
+        // Try to salvage items from wreck
+        let itemsRecovered = 0;
+        let itemsLeft = 0;
+        const recoveredItems = [];
+
+        for (let i = shipwreck.cargo.length - 1; i >= 0; i--) {
+            const item = shipwreck.cargo[i];
+            const result = player.addToCargo(item);
+
+            if (result.success) {
+                recoveredItems.push(item);
+                shipwreck.cargo.splice(i, 1);
+                itemsRecovered++;
+            } else {
+                itemsLeft++;
+            }
+        }
+
+        // Calculate total value recovered
+        const totalValue = recoveredItems.reduce((sum, item) => sum + (item.value || 0), 0);
+
+        // Update or remove shipwreck
+        if (shipwreck.cargo.length === 0) {
+            // All items recovered, remove wreck
+            this.removeEntity(shipwreck.x, shipwreck.y);
+            return {
+                success: true,
+                message: `⚓ Salvaged all ${itemsRecovered} items from wreck! (~${totalValue}g) The wreck sinks into the depths.`
+            };
+        } else {
+            // Some items remain
+            shipwreck.description = `Wreckage of a ${shipwreck.shipType} (${shipwreck.cargo.length} items remain)`;
+            return {
+                success: true,
+                message: `⚓ Salvaged ${itemsRecovered} items (~${totalValue}g). ${itemsLeft} items remain (cargo full)`
             };
         }
     }

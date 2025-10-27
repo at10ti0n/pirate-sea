@@ -691,15 +691,101 @@ class TerminalGame {
     // ===== PHASE 2: DEATH & RESPAWN SYSTEM =====
 
     handleDeath(cause) {
-        // Phase 2: Stub implementation - will be expanded with shipwreck recovery
-        this.addMessage('💀 YOUR SHIP HAS SUNK!');
-        this.addMessage(`Lost all cargo at (${this.player.x}, ${this.player.y})`);
-        this.addMessage(`Respawning at home port with dinghy... Gold safe: ${this.player.gold}g`);
+        // Phase 2: Full death/respawn with shipwreck recovery
+        const deathX = this.player.x;
+        const deathY = this.player.y;
+        const lostShip = this.player.currentShip;
+        const lostCargo = [...this.player.cargoHold]; // Copy cargo array
+        const goldSafe = this.player.gold;
 
-        // TODO Phase 2: Create shipwreck entity with cargo
-        // TODO Phase 2: Implement respawn at home port
-        // For now, just reset hull
-        this.player.shipHull = this.player.maxShipHull;
+        // Create shipwreck entity at death location
+        if (lostCargo.length > 0) {
+            const shipwreck = {
+                type: 'shipwreck',
+                x: deathX,
+                y: deathY,
+                char: '⚓',
+                color: '#555555',
+                cargo: lostCargo,
+                shipType: lostShip,
+                deathCause: cause,
+                createdTurn: this.turn,
+                description: `Wreckage of a ${lostShip} (${lostCargo.length} items)`
+            };
+            this.entityManager.addEntity(shipwreck);
+            this.addMessage(`💀 YOUR SHIP HAS SUNK at (${deathX}, ${deathY})!`);
+            this.addMessage(`⚓ A shipwreck marks your grave with ${lostCargo.length} cargo items`);
+        } else {
+            this.addMessage(`💀 YOUR SHIP HAS SUNK at (${deathX}, ${deathY})!`);
+            this.addMessage('You had no cargo to lose');
+        }
+
+        // Calculate total lost value
+        const lostValue = lostCargo.reduce((sum, item) => sum + (item.value || 0), 0);
+        if (lostValue > 0) {
+            this.addMessage(`Lost cargo worth ~${lostValue}g`);
+        }
+
+        // Respawn at home port or spawn location
+        if (this.player.homePort) {
+            this.player.x = this.player.homePortX;
+            this.player.y = this.player.homePortY;
+            this.addMessage(`⚔️ You wash ashore at ${this.player.homePort.name || 'your home port'}`);
+        } else {
+            // No home port - respawn at starting location
+            const spawnLoc = this.findSafeSpawnLocation();
+            if (spawnLoc) {
+                this.player.x = spawnLoc.x;
+                this.player.y = spawnLoc.y;
+                this.addMessage('⚔️ You wash ashore on a strange beach');
+            }
+        }
+
+        // Reset to dinghy
+        const oldShip = this.player.currentShip;
+        this.player.currentShip = 'dinghy';
+        this.player.shipHull = this.player.maxShipHull; // Dinghy hull
+        this.player.mode = 'foot'; // Respawn on foot
+
+        // Clear cargo and food (lost at sea)
+        this.player.cargoHold = [];
+        this.player.food = Math.max(this.player.food, 10); // Start with minimum food
+
+        // Gold is safe (stored at port)
+        this.addMessage(`💰 Your gold is safe: ${goldSafe}g`);
+        this.addMessage(`🏴 You've been given a replacement dinghy`);
+
+        if (lostCargo.length > 0) {
+            this.addMessage(`🗺️ You can recover your cargo from the shipwreck at (${deathX}, ${deathY})`);
+            this.addMessage('Mark this location! The wreck may despawn eventually');
+        }
+
+        // Show death summary
+        const deathSummary = cause === 'shipwreck' ? 'Storm' : 'Starvation';
+        this.addMessage(`--- DEATH SUMMARY: ${deathSummary} ---`);
+        this.addMessage(`Lost: ${oldShip}, ${lostCargo.length} cargo items`);
+        this.addMessage(`Kept: ${goldSafe}g, spawn at home`);
+    }
+
+    // Find a safe spawn location (used for respawn without home port)
+    findSafeSpawnLocation() {
+        // Try to find walkable land near (0, 0)
+        for (let radius = 0; radius < 50; radius++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+                for (let dy = -radius; dy <= radius; dy++) {
+                    if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
+
+                    const x = dx;
+                    const y = dy;
+                    const tile = this.mapGenerator.getTileAt(x, y);
+
+                    if (tile && tile.walkable && tile.biome !== 'ocean' && tile.biome !== 'deep_ocean') {
+                        return { x, y };
+                    }
+                }
+            }
+        }
+        return { x: 0, y: 0 }; // Fallback
     }
 
     checkWeatherWarnings() {
