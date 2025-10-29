@@ -735,40 +735,47 @@ class EntityManager {
         this.removeEntity(bottle.x, bottle.y);
 
         if (bottle.containsMap) {
-            // Generate treasure map pointing to land
+            // Generate treasure map pointing to distant island
             const distance = 50 + Math.floor(this.seededRandom.random() * 200); // 50-250 tiles away
             const angle = this.seededRandom.random() * Math.PI * 2;
-            const initialX = Math.round(player.x + Math.cos(angle) * distance);
-            const initialY = Math.round(player.y + Math.sin(angle) * distance);
+            const targetX = Math.round(player.x + Math.cos(angle) * distance);
+            const targetY = Math.round(player.y + Math.sin(angle) * distance);
 
-            // Find nearest land tile (search in expanding radius)
-            let targetX = initialX;
-            let targetY = initialY;
-            let foundLand = false;
+            // Trigger map/entity generation at target region to encourage exploration
+            const regionKey = this.getRegionKey(targetX, targetY);
+            if (!this.spawnedRegions.has(regionKey)) {
+                this.spawnEntitiesInRegion(targetX, targetY);
+            }
 
-            for (let radius = 0; radius < 20 && !foundLand; radius++) {
-                for (let dx = -radius; dx <= radius && !foundLand; dx++) {
-                    for (let dy = -radius; dy <= radius && !foundLand; dy++) {
-                        if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
+            // Find nearest island in the target region (search in expanding circles)
+            let bestLandTile = null;
+            let closestDistance = Infinity;
 
-                        const checkX = initialX + dx;
-                        const checkY = initialY + dy;
+            // Search in expanding radius, prioritizing closer islands
+            for (let searchRadius = 10; searchRadius <= 60; searchRadius += 10) {
+                for (let dy = -searchRadius; dy <= searchRadius; dy += 5) {
+                    for (let dx = -searchRadius; dx <= searchRadius; dx += 5) {
+                        const checkX = targetX + dx;
+                        const checkY = targetY + dy;
                         const tile = this.mapGenerator.getTileAt(checkX, checkY);
 
                         if (tile && tile.biome !== 'ocean' && tile.biome !== 'deep_ocean' && tile.walkable) {
-                            targetX = checkX;
-                            targetY = checkY;
-                            foundLand = true;
+                            const dist = Math.sqrt(dx * dx + dy * dy);
+                            if (dist < closestDistance) {
+                                closestDistance = dist;
+                                bestLandTile = { x: checkX, y: checkY };
+                            }
                         }
                     }
                 }
+
+                // If we found land at this radius, use it (don't search further)
+                if (bestLandTile) break;
             }
 
-            // If no land found, default to original location (shouldn't happen often)
-            if (!foundLand) {
-                targetX = initialX;
-                targetY = initialY;
-            }
+            // Use the found island location, or fallback to original coordinates
+            const finalX = bestLandTile ? bestLandTile.x : targetX;
+            const finalY = bestLandTile ? bestLandTile.y : targetY;
 
             // Determine treasure quality based on distance
             let treasureRarity;
@@ -779,13 +786,13 @@ class EntityManager {
             const treasureMap = {
                 type: 'treasure_map',
                 name: 'Treasure Map',
-                targetX: targetX,
-                targetY: targetY,
+                targetX: finalX,
+                targetY: finalY,
                 treasureRarity: treasureRarity,
                 distance: distance,
                 weight: 0, // Maps are weightless
                 value: 0, // No sell value
-                description: `A worn map showing treasure at (${targetX}, ${targetY}) - ${Math.floor(distance)} tiles away`
+                description: `A worn map showing treasure at (${finalX}, ${finalY}) - ${Math.floor(distance)} tiles away`
             };
 
             const result = player.addToCargo(treasureMap);
@@ -793,7 +800,7 @@ class EntityManager {
             if (result.success) {
                 return {
                     success: true,
-                    message: `🍾 Found a bottle! It contains a treasure map! Location: (${targetX}, ${targetY})`
+                    message: `🍾 Found a bottle! It contains a treasure map! Location: (${finalX}, ${finalY})`
                 };
             } else {
                 // Cargo full, map is lost
