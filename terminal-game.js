@@ -792,7 +792,7 @@ class TerminalGame {
 
                     const x = dx;
                     const y = dy;
-                    const tile = this.mapGenerator.getTileAt(x, y);
+                    const tile = this.mapGenerator.getBiomeAt(x, y);
 
                     if (tile && tile.walkable && tile.biome !== 'ocean' && tile.biome !== 'deep_ocean') {
                         return { x, y };
@@ -1251,7 +1251,7 @@ class TerminalGame {
         }
 
         // Check if on land
-        const tile = this.mapGenerator.getTileAt(this.player.x, this.player.y);
+        const tile = this.mapGenerator.getBiomeAt(this.player.x, this.player.y);
         if (!tile || tile.biome === 'ocean' || tile.biome === 'deep_ocean') {
             this.addMessage('You can\'t dig in water!');
             return;

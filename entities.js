@@ -757,7 +757,7 @@ class EntityManager {
                     for (let dx = -searchRadius; dx <= searchRadius; dx += 5) {
                         const checkX = targetX + dx;
                         const checkY = targetY + dy;
-                        const tile = this.mapGenerator.getTileAt(checkX, checkY);
+                        const tile = this.mapGenerator.getBiomeAt(checkX, checkY);
 
                         if (tile && tile.biome !== 'ocean' && tile.biome !== 'deep_ocean' && tile.walkable) {
                             const dist = Math.sqrt(dx * dx + dy * dy);
