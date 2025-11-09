@@ -515,6 +515,12 @@ class MapGenerator {
 
     // Adjust hex color brightness by factor
     adjustColorBrightness(hexColor, factor) {
+        // If it's an ANSI color code (for terminal mode), return as-is
+        // Terminal colors can't be brightness-adjusted with limited palette
+        if (hexColor && hexColor.startsWith('\x1b[')) {
+            return hexColor;
+        }
+
         // Remove # if present
         const hex = hexColor.replace('#', '');
 
