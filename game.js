@@ -11,6 +11,9 @@ class PirateSeaGame {
         this.playerInventory = null;
         this.economyManager = null;
         this.weatherManager = null;
+        this.crewManager = null;
+        this.combatManager = null;
+        this.questManager = null;
         this.gameRunning = false;
         this.treasureCollected = 0;
         this.portsVisited = 0;
@@ -39,6 +42,17 @@ class PirateSeaGame {
             this.weatherManager = new WeatherManager(seededRandom);
             this.weatherManager.initializeNoise();
 
+            // Initialize new game systems
+            if (typeof CrewManager !== 'undefined') {
+                this.crewManager = new CrewManager(seededRandom);
+            }
+            if (typeof CombatManager !== 'undefined') {
+                this.combatManager = new CombatManager(seededRandom);
+            }
+            if (typeof QuestManager !== 'undefined') {
+                this.questManager = new QuestManager(seededRandom);
+            }
+
             this.entityManager = new EntityManager(this.mapGenerator, this.economyManager);
             this.player = new Player(this.mapGenerator);
             this.fogOfWar = new FogOfWar(this.mapGenerator);
@@ -53,6 +67,18 @@ class PirateSeaGame {
             
             // Spawn entities around player
             this.entityManager.spawnEntities(this.player.x, this.player.y);
+
+            // Initialize player's crew
+            if (this.crewManager) {
+                this.player.initializeCrew(this.crewManager);
+                console.log('Crew initialized for player');
+            }
+
+            // Spawn enemy ships
+            if (this.combatManager) {
+                this.combatManager.spawnEnemyShips(this.entityManager, this.player.x, this.player.y);
+                console.log('Enemy ships spawned');
+            }
 
             // Generate initial weather
             this.weatherManager.generateWeather(this.player.x, this.player.y);
@@ -99,6 +125,32 @@ class PirateSeaGame {
             this.weatherManager.updateWeather(this.player.x, this.player.y);
             this.applyWeatherEffects();
             this.checkWeatherWarnings();
+        }
+
+        // Update enemy AI and combat
+        if (this.combatManager && this.player.mode === 'ship') {
+            const combatMessages = this.combatManager.updateEnemyAI(this.entityManager, this.player);
+            combatMessages.forEach(msg => this.uiManager.addMessage(msg));
+        }
+
+        // Update active quests
+        if (this.questManager) {
+            const questMessages = this.questManager.updateQuests(this.player, this.entityManager);
+            questMessages.forEach(msg => this.uiManager.addMessage(msg));
+        }
+
+        // Update crew morale (every 10 turns)
+        if (this.crewManager && this.player.crew && this.turnCount % 10 === 0) {
+            const conditions = {
+                hasFood: this.player.foodInventory.length > 0,
+                hasWater: true, // Simplified for now
+                atPort: false,
+                shipDamaged: this.player.shipHull < this.player.maxShipHull * 0.7
+            };
+            const moraleUpdate = this.player.updateCrewMorale(this.crewManager, conditions);
+            if (moraleUpdate && moraleUpdate.mutinyRisk === 'high' || moraleUpdate.mutinyRisk === 'imminent') {
+                this.uiManager.addMessage(`⚠️ Crew morale is ${moraleUpdate.mutinyRisk}! Risk of mutiny!`);
+            }
         }
     }
     

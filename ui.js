@@ -169,6 +169,22 @@ class UIManager {
             case 'R':
                 this.handleRepair();
                 break;
+            case 'c':
+            case 'C':
+                this.handleCrewStatus();
+                break;
+            case 'a':
+            case 'A':
+                this.handleCombat();
+                break;
+            case 'q':
+            case 'Q':
+                this.handleQuestMenu();
+                break;
+            case 'p':
+            case 'P':
+                this.handlePortMenu();
+                break;
         }
     }
     
@@ -631,8 +647,28 @@ class UIManager {
         const playerMode = this.game.player.getMode();
         const currentSeed = this.game.getSeed();
         const playerGold = this.game.player.gold;
+        const reputation = this.game.player.getReputationStatus();
 
-        this.addMessage(`Mode: ${playerMode}, Gold: ${playerGold}g, Treasure: ${treasureCount}, Seed: ${currentSeed}`);
+        let info = `Mode: ${playerMode}, Gold: ${playerGold}g, Treasure: ${treasureCount}`;
+
+        // Add crew info if available
+        if (this.game.crewManager && this.game.player.crew && playerMode === 'ship') {
+            const crewStatus = this.game.player.getCrewStatus(this.game.crewManager);
+            if (crewStatus) {
+                info += `, Crew: ${crewStatus.size}/${crewStatus.maxSize} (${crewStatus.moraleStatus})`;
+            }
+        }
+
+        // Add quest count
+        if (this.game.questManager) {
+            const activeQuests = this.game.questManager.activeQuests.length;
+            if (activeQuests > 0) {
+                info += `, Quests: ${activeQuests}`;
+            }
+        }
+
+        this.addMessage(info);
+        this.addMessage(`Reputation: ${reputation}, Seed: ${currentSeed}`);
     }
     
     // Inventory management methods
@@ -983,5 +1019,274 @@ class UIManager {
         }
 
         this.addMessage('Closed trading');
+    }
+
+    // ===== CREW MANAGEMENT UI =====
+
+    handleCrewStatus() {
+        if (!this.game.crewManager || !this.game.player.crew) {
+            this.addMessage('No crew to manage!');
+            return;
+        }
+
+        const crewStatus = this.game.player.getCrewStatus(this.game.crewManager);
+        if (!crewStatus) {
+            this.addMessage('Crew status unavailable!');
+            return;
+        }
+
+        this.addMessage('=== CREW STATUS ===');
+        this.addMessage(`Size: ${crewStatus.size}/${crewStatus.maxSize}`);
+        this.addMessage(`Morale: ${crewStatus.morale}% (${crewStatus.moraleStatus})`);
+        this.addMessage(`Wages: ${crewStatus.wages}g/day (${crewStatus.daysSincePay} days since pay)`);
+        this.addMessage(`Mutiny Risk: ${crewStatus.mutinyRisk}`);
+        this.addMessage(`Skills - Nav:${crewStatus.avgSkills.navigation} Combat:${crewStatus.avgSkills.combat} Repair:${crewStatus.avgSkills.repair} Sail:${crewStatus.avgSkills.sailing}`);
+        this.addMessage(`Bonuses - Speed:+${crewStatus.bonuses.speedBonus}% Combat:+${crewStatus.bonuses.combatBonus}%`);
+    }
+
+    // ===== COMBAT UI =====
+
+    handleCombat() {
+        if (!this.game.combatManager) {
+            this.addMessage('Combat system not available!');
+            return;
+        }
+
+        // Check if already in combat
+        const inCombat = this.game.combatManager.isInCombat(this.game.player);
+        if (inCombat) {
+            this.showCombatMenu();
+            return;
+        }
+
+        // Check for nearby enemies
+        const nearbyEnemies = this.game.combatManager.getNearbyEnemies(
+            this.game.entityManager,
+            this.game.player.x,
+            this.game.player.y,
+            15
+        );
+
+        if (nearbyEnemies.length === 0) {
+            this.addMessage('No enemies nearby!');
+            return;
+        }
+
+        this.addMessage('=== NEARBY ENEMIES ===');
+        nearbyEnemies.slice(0, 5).forEach((e, i) => {
+            const dist = Math.floor(e.distance);
+            this.addMessage(`${i + 1}. ${e.enemy.name} - ${dist} tiles ${e.direction} (Hull: ${e.enemy.hull}/${e.enemy.maxHull})`);
+        });
+    }
+
+    showCombatMenu() {
+        const combat = this.game.combatManager.getCombatStatus(this.game.player);
+        if (!combat) return;
+
+        this.addMessage('=== COMBAT ===');
+        this.addMessage(`Enemy: ${combat.enemy.name} (Hull: ${combat.enemy.hull}/${combat.enemy.maxHull})`);
+        this.addMessage(`Your Hull: ${this.game.player.shipHull}/${this.game.player.maxShipHull}`);
+        this.addMessage('Actions: [1] Attack [2] Defend [3] Board [4] Flee');
+
+        // Set up combat key handler
+        this.setupCombatKeyHandler(combat.enemy);
+    }
+
+    setupCombatKeyHandler(enemy) {
+        const handler = (e) => {
+            if (e.key >= '1' && e.key <= '4') {
+                const actions = ['attack', 'defend', 'board', 'flee'];
+                const action = actions[parseInt(e.key) - 1];
+
+                const crewBonuses = this.game.player.getCrewBonuses(this.game.crewManager);
+                const result = this.game.combatManager.executeCombatTurn(
+                    this.game.player,
+                    enemy,
+                    action,
+                    crewBonuses
+                );
+
+                result.messages.forEach(msg => this.addMessage(msg));
+
+                if (result.combatOver) {
+                    document.removeEventListener('keydown', handler);
+
+                    if (result.victory) {
+                        // Award loot
+                        if (result.loot) {
+                            this.game.player.addGold(result.loot.gold);
+                            this.addMessage(`💰 Looted ${result.loot.gold}g!`);
+
+                            result.loot.items.forEach(item => {
+                                const addResult = this.game.player.addToCargo(item);
+                                if (addResult.success) {
+                                    this.addMessage(`+ ${item.name}`);
+                                }
+                            });
+                        }
+
+                        // Remove enemy from map
+                        this.game.combatManager.endCombat(`${this.game.player.x},${this.game.player.y}`, this.game.entityManager, enemy);
+
+                        // Add reputation
+                        this.game.player.addReputation(5);
+                    } else if (result.shipDestroyed) {
+                        this.game.handleShipSinking();
+                    }
+
+                    this.game.render();
+                } else {
+                    // Continue combat
+                    this.showCombatMenu();
+                }
+            }
+        };
+
+        document.addEventListener('keydown', handler);
+    }
+
+    // ===== QUEST UI =====
+
+    handleQuestMenu() {
+        if (!this.game.questManager) {
+            this.addMessage('Quest system not available!');
+            return;
+        }
+
+        const activeQuests = this.game.questManager.activeQuests;
+
+        if (activeQuests.length === 0) {
+            this.addMessage('No active quests!');
+            return;
+        }
+
+        this.addMessage('=== ACTIVE QUESTS ===');
+        activeQuests.forEach((quest, i) => {
+            const timeInfo = quest.timeLimit ? ` [${quest.timeLimit - (quest.turnCount || 0)} turns left]` : '';
+            this.addMessage(`${i + 1}. ${quest.name}${timeInfo}`);
+            this.addMessage(`   ${quest.description}`);
+            if (quest.progress > 0) {
+                this.addMessage(`   Progress: ${quest.progress}%`);
+            }
+        });
+    }
+
+    handlePortMenu() {
+        const port = this.game.entityManager.getEntityAt(this.game.player.x, this.game.player.y);
+
+        if (!port || port.type !== 'port') {
+            this.addMessage('You must be at a port to access port services!');
+            return;
+        }
+
+        this.addMessage('=== PORT MENU ===');
+        this.addMessage(`Welcome to ${port.portName || 'Port'}!`);
+        this.addMessage('[T] Trading');
+        this.addMessage('[H] Hire Crew (20-80g)');
+        this.addMessage('[W] Pay Crew Wages');
+        this.addMessage('[Q] View Available Quests');
+        this.addMessage('[R] Repair Ship');
+
+        // Set up port menu handler
+        this.setupPortMenuHandler(port);
+    }
+
+    setupPortMenuHandler(port) {
+        const handler = (e) => {
+            switch (e.key.toLowerCase()) {
+                case 't':
+                    document.removeEventListener('keydown', handler);
+                    this.handleTrading();
+                    break;
+                case 'h':
+                    document.removeEventListener('keydown', handler);
+                    this.handleHireCrew(port);
+                    break;
+                case 'w':
+                    document.removeEventListener('keydown', handler);
+                    this.handlePayWages();
+                    break;
+                case 'q':
+                    document.removeEventListener('keydown', handler);
+                    this.handlePortQuests(port);
+                    break;
+                case 'r':
+                    document.removeEventListener('keydown', handler);
+                    this.handleRepair();
+                    break;
+                case 'escape':
+                    document.removeEventListener('keydown', handler);
+                    this.addMessage('Closed port menu');
+                    break;
+            }
+        };
+
+        document.addEventListener('keydown', handler);
+    }
+
+    handleHireCrew(port) {
+        if (!this.game.crewManager || !this.game.player.crew) {
+            this.addMessage('Crew system not available!');
+            return;
+        }
+
+        const portTier = this.getPortTier(port);
+        const result = this.game.player.hireCrew(this.game.crewManager, portTier);
+        this.addMessage(result.message);
+
+        if (result.success && result.member) {
+            this.addMessage(`  ${result.member.name} - Nav:${result.member.skills.navigation} Combat:${result.member.skills.combat}`);
+        }
+    }
+
+    handlePayWages() {
+        if (!this.game.crewManager || !this.game.player.crew) {
+            this.addMessage('No crew to pay!');
+            return;
+        }
+
+        const result = this.game.player.payCrewWages(this.game.crewManager);
+        this.addMessage(result.message);
+    }
+
+    handlePortQuests(port) {
+        if (!this.game.questManager) {
+            this.addMessage('Quest system not available!');
+            return;
+        }
+
+        const availableQuests = this.game.questManager.getPortQuests(port, this.game.player, 3);
+
+        this.addMessage('=== AVAILABLE QUESTS ===');
+        availableQuests.forEach((quest, i) => {
+            this.addMessage(`${i + 1}. ${quest.name} - ${quest.reward}g`);
+            this.addMessage(`   ${quest.detailedDesc}`);
+        });
+
+        this.addMessage('Press 1-3 to accept a quest, ESC to cancel');
+
+        const handler = (e) => {
+            if (e.key >= '1' && e.key <= '3') {
+                const index = parseInt(e.key) - 1;
+                if (availableQuests[index]) {
+                    const result = this.game.questManager.acceptQuest(availableQuests[index]);
+                    this.addMessage(result.message);
+                }
+                document.removeEventListener('keydown', handler);
+            } else if (e.key === 'Escape') {
+                this.addMessage('Cancelled quest selection');
+                document.removeEventListener('keydown', handler);
+            }
+        };
+
+        document.addEventListener('keydown', handler);
+    }
+
+    getPortTier(port) {
+        if (!port.islandSize) return 'small';
+        if (port.islandSize < 50) return 'small';
+        if (port.islandSize < 150) return 'medium';
+        if (port.islandSize < 300) return 'large';
+        return 'capital';
     }
 }

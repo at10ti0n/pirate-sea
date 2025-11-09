@@ -38,6 +38,12 @@ class Player {
         this.homePortX = null;
         this.homePortY = null;
 
+        // Crew system
+        this.crew = null; // Will be initialized when player gets a ship
+
+        // Reputation system
+        this.reputation = 0; // Positive = good, negative = pirate
+
         this.initialize();
     }
 
@@ -941,6 +947,130 @@ class Player {
         };
 
         return ranges[this.currentShip] || 100;
+    }
+
+    // ===== CREW MANAGEMENT =====
+
+    /**
+     * Initialize crew for player's ship
+     * @param {Object} crewManager - Crew manager instance
+     */
+    initializeCrew(crewManager) {
+        if (!this.crew) {
+            this.crew = crewManager.initializeCrew(this.currentShip);
+        }
+    }
+
+    /**
+     * Get crew bonuses
+     * @param {Object} crewManager - Crew manager instance
+     */
+    getCrewBonuses(crewManager) {
+        if (!this.crew || !crewManager) {
+            return null;
+        }
+        return crewManager.getCrewBonuses(this.crew);
+    }
+
+    /**
+     * Update crew morale
+     * @param {Object} crewManager - Crew manager instance
+     * @param {Object} conditions - Current conditions
+     */
+    updateCrewMorale(crewManager, conditions) {
+        if (!this.crew || !crewManager) {
+            return null;
+        }
+        return crewManager.updateMorale(this.crew, conditions);
+    }
+
+    /**
+     * Check for mutiny
+     * @param {Object} crewManager - Crew manager instance
+     */
+    checkMutiny(crewManager) {
+        if (!this.crew || !crewManager) {
+            return { mutiny: false };
+        }
+        return crewManager.attemptMutiny(this.crew);
+    }
+
+    /**
+     * Pay crew wages
+     * @param {Object} crewManager - Crew manager instance
+     */
+    payCrewWages(crewManager) {
+        if (!this.crew || !crewManager) {
+            return { success: false, message: 'No crew to pay!' };
+        }
+
+        const result = crewManager.payWages(this.crew, this.gold);
+        if (result.success) {
+            this.gold -= result.cost;
+        }
+        return result;
+    }
+
+    /**
+     * Hire crew member
+     * @param {Object} crewManager - Crew manager instance
+     * @param {string} portTier - Port tier
+     */
+    hireCrew(crewManager, portTier = 'small') {
+        if (!this.crew) {
+            return { success: false, message: 'No crew system initialized!' };
+        }
+
+        const result = crewManager.hireCrew(this.crew, this.gold, portTier);
+        if (result.success) {
+            this.gold -= result.cost;
+        }
+        return result;
+    }
+
+    /**
+     * Get crew status
+     * @param {Object} crewManager - Crew manager instance
+     */
+    getCrewStatus(crewManager) {
+        if (!this.crew || !crewManager) {
+            return null;
+        }
+        return crewManager.getCrewStatus(this.crew);
+    }
+
+    // ===== REPUTATION MANAGEMENT =====
+
+    /**
+     * Add reputation
+     */
+    addReputation(amount) {
+        this.reputation += amount;
+        return this.reputation;
+    }
+
+    /**
+     * Get reputation status
+     */
+    getReputationStatus() {
+        if (this.reputation >= 100) return 'Hero of the Seas';
+        if (this.reputation >= 50) return 'Respected Captain';
+        if (this.reputation >= 10) return 'Known Sailor';
+        if (this.reputation >= -10) return 'Neutral';
+        if (this.reputation >= -50) return 'Scoundrel';
+        if (this.reputation >= -100) return 'Pirate';
+        return 'Notorious Pirate';
+    }
+
+    /**
+     * Spend gold (with check)
+     */
+    spendGold(amount) {
+        if (this.gold >= amount) {
+            this.gold -= amount;
+            return true;
+        }
+        return false;
     }
 }
 

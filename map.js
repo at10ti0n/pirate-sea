@@ -31,7 +31,7 @@ class MapGenerator {
     
     initializeBiomes() {
         this.biomes = {
-            ocean: { char: '~', color: '#2980b9', walkable: false, shipWalkable: true },
+            ocean: { char: '~', color: '#3498db', walkable: false, shipWalkable: true },
             beach: { char: '.', color: '#f39c12', walkable: true, shipWalkable: false },
             mountain: { char: '^', color: '#7f8c8d', walkable: true, shipWalkable: false },
             snow: { char: '*', color: '#ecf0f1', walkable: true, shipWalkable: false },

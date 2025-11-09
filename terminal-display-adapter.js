@@ -6,7 +6,8 @@ class TerminalDisplayAdapter {
         // Map hex colors to ANSI codes
         this.colorMap = {
             // Biome colors
-            '#2980b9': '\x1b[34m',    // ocean - blue
+            '#3498db': '\x1b[34m',    // ocean - blue
+            '#2980b9': '\x1b[34m',    // ocean - blue (legacy)
             '#f39c12': '\x1b[33m',    // beach - yellow
             '#7f8c8d': '\x1b[90m',    // mountain - gray
             '#ecf0f1': '\x1b[97m',    // snow - bright white
