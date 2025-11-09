@@ -20,6 +20,12 @@ class TerminalDisplayAdapter {
             '#229954': '\x1b[32m',    // forest - green
             '#2ecc71': '\x1b[32m',    // grassland - bright green
 
+            // Weather colors
+            '#b0b0b0': '\x1b[90m',    // fog - gray
+            '#6fa8dc': '\x1b[36m',    // rain - cyan/light blue
+            '#3d5a80': '\x1b[34m',    // storm - dark blue
+            '#1a1a2e': '\x1b[90m',    // hurricane - very dark (gray)
+
             // Entity colors
             '#8b4513': '\x1b[33m',    // ship - brown/yellow
             '#e74c3c': '\x1b[31m',    // port - red
