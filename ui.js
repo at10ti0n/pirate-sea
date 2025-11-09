@@ -169,16 +169,16 @@ class UIManager {
             case 'R':
                 this.handleRepair();
                 break;
-            case 'c':
-            case 'C':
+            case 'n':
+            case 'N':
                 this.handleCrewStatus();
                 break;
-            case 'a':
-            case 'A':
+            case 'f':
+            case 'F':
                 this.handleCombat();
                 break;
-            case 'q':
-            case 'Q':
+            case 'j':
+            case 'J':
                 this.handleQuestMenu();
                 break;
             case 'p':

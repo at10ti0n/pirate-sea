@@ -225,6 +225,15 @@ class TerminalGame {
             case 'h':
                 this.digForTreasure();
                 break;
+            case 'n':
+                this.handleCrewStatus();
+                break;
+            case 'f':
+                this.handleCombat();
+                break;
+            case 'j':
+                this.handleQuestMenu();
+                break;
         }
 
         // Update game state
@@ -1401,6 +1410,81 @@ class TerminalGame {
         }
     }
 
+    handleCrewStatus() {
+        if (!this.crewManager || !this.player.crew) {
+            this.addMessage('No crew to manage!');
+            return;
+        }
+
+        const crew = this.player.crew;
+        this.addMessage('=== CREW STATUS ===');
+        this.addMessage(`Crew Size: ${crew.members.length} sailors`);
+        this.addMessage(`Morale: ${Math.floor(crew.morale)}% (${crew.mutinyRisk} mutiny risk)`);
+        this.addMessage(`Wages: ${crew.totalWages}g per turn`);
+
+        if (crew.avgSkills) {
+            this.addMessage(`Skills - Nav: ${Math.floor(crew.avgSkills.navigation * 10)}/10, Combat: ${Math.floor(crew.avgSkills.combat * 10)}/10, Repair: ${Math.floor(crew.avgSkills.repair * 10)}/10`);
+        }
+
+        const bonuses = this.player.getCrewBonuses(this.crewManager);
+        if (bonuses) {
+            this.addMessage(`Bonuses: +${bonuses.speedBonus}% speed, +${bonuses.combatBonus}% combat damage`);
+        }
+    }
+
+    handleCombat() {
+        if (!this.combatManager) {
+            this.addMessage('Combat system not available!');
+            return;
+        }
+
+        // Find nearby enemies
+        const nearbyEnemies = this.combatManager.findNearbyEnemies(this.entityManager, this.player.x, this.player.y, 10);
+
+        if (nearbyEnemies.length === 0) {
+            this.addMessage('No enemy ships nearby.');
+            return;
+        }
+
+        this.addMessage(`=== NEARBY ENEMIES (${nearbyEnemies.length}) ===`);
+        nearbyEnemies.forEach((enemy, i) => {
+            const distance = Math.floor(Math.sqrt(
+                Math.pow(enemy.x - this.player.x, 2) +
+                Math.pow(enemy.y - this.player.y, 2)
+            ));
+            this.addMessage(`${i+1}. ${enemy.shipType} - ${enemy.hull}/${enemy.maxHull} HP - ${distance} tiles away`);
+        });
+    }
+
+    handleQuestMenu() {
+        if (!this.questManager) {
+            this.addMessage('Quest system not available!');
+            return;
+        }
+
+        const activeQuests = this.questManager.getActiveQuests();
+
+        if (activeQuests.length === 0) {
+            this.addMessage('No active quests. Visit a port to accept quests!');
+            return;
+        }
+
+        this.addMessage(`=== ACTIVE QUESTS (${activeQuests.length}) ===`);
+        activeQuests.forEach((quest, i) => {
+            this.addMessage(`${i+1}. ${quest.title} - ${quest.reward}g reward`);
+            if (quest.targetX !== undefined) {
+                const distance = Math.floor(Math.sqrt(
+                    Math.pow(quest.targetX - this.player.x, 2) +
+                    Math.pow(quest.targetY - this.player.y, 2)
+                ));
+                this.addMessage(`   Location: (${quest.targetX}, ${quest.targetY}) - ${distance} tiles away`);
+            }
+            if (quest.requiredTime || quest.requiredWeather) {
+                this.addMessage(`   Conditions: ${quest.requiredTime || 'any time'}, ${quest.requiredWeather || 'any weather'}`);
+            }
+        });
+    }
+
     createBar(percent, width) {
         // Create a visual progress bar
         const filled = Math.round((percent / 100) * width);
@@ -1669,7 +1753,8 @@ class TerminalGame {
         }
 
         console.log('╠════════════════════════════════════════════════════════════════════════════╣');
-        console.log('║ \x1b[90mWASD\x1b[0m=Move \x1b[90mB\x1b[0m=Board \x1b[90mI\x1b[0m=Cargo \x1b[90mP\x1b[0m=Port \x1b[90mM\x1b[0m=Maps \x1b[90mH\x1b[0m=Dig \x1b[90mG\x1b[0m=Gather \x1b[90mT\x1b[0m=Trade \x1b[90mQ\x1b[0m=Quit   ║');
+        console.log('║ \x1b[90mWASD\x1b[0m=Move \x1b[90mB\x1b[0m=Board \x1b[90mI\x1b[0m=Cargo \x1b[90mP\x1b[0m=Port \x1b[90mN\x1b[0m=Crew \x1b[90mF\x1b[0m=Fight \x1b[90mJ\x1b[0m=Quests \x1b[90mQ\x1b[0m=Quit        ║');
+        console.log('║ \x1b[90mM\x1b[0m=Maps \x1b[90mH\x1b[0m=Dig \x1b[90mG\x1b[0m=Gather \x1b[90mT\x1b[0m=Trade \x1b[90mC\x1b[0m=Cook \x1b[90mE\x1b[0m=Eat \x1b[90mX\x1b[0m=Examine \x1b[90mR\x1b[0m=Repair    ║');
         console.log('╚════════════════════════════════════════════════════════════════════════════╝');
 
         // Phase 1: Display port menu if active
