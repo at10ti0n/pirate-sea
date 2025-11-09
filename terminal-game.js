@@ -1420,7 +1420,7 @@ class TerminalGame {
         this.addMessage('=== CREW STATUS ===');
         this.addMessage(`Crew Size: ${crew.members.length} sailors`);
         this.addMessage(`Morale: ${Math.floor(crew.morale)}% (${crew.mutinyRisk} mutiny risk)`);
-        this.addMessage(`Wages: ${crew.totalWages}g per turn`);
+        this.addMessage(`Wages: ${crew.totalWages || 0}g per turn`);
 
         if (crew.avgSkills) {
             this.addMessage(`Skills - Nav: ${Math.floor(crew.avgSkills.navigation * 10)}/10, Combat: ${Math.floor(crew.avgSkills.combat * 10)}/10, Repair: ${Math.floor(crew.avgSkills.repair * 10)}/10`);
@@ -1439,7 +1439,7 @@ class TerminalGame {
         }
 
         // Find nearby enemies
-        const nearbyEnemies = this.combatManager.findNearbyEnemies(this.entityManager, this.player.x, this.player.y, 10);
+        const nearbyEnemies = this.combatManager.getNearbyEnemies(this.entityManager, this.player.x, this.player.y, 10);
 
         if (nearbyEnemies.length === 0) {
             this.addMessage('No enemy ships nearby.');
