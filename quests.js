@@ -43,6 +43,64 @@ class QuestManager {
                 description: 'Rescue stranded sailors',
                 baseReward: 180,
                 difficulty: 'medium'
+            },
+            rendezvous: {
+                name: 'Secret Rendezvous',
+                description: 'Meet contact at specific location under certain conditions',
+                baseReward: 300,
+                difficulty: 'hard'
+            }
+        };
+
+        // Possible environmental conditions for quests
+        this.conditionTypes = {
+            clear_night: {
+                time: 'night',
+                weather: 'clear',
+                name: 'a clear night',
+                action: 'meet under the stars'
+            },
+            clear_day: {
+                time: 'day',
+                weather: 'clear',
+                name: 'a clear day',
+                action: 'meet in broad daylight'
+            },
+            stormy_night: {
+                time: 'night',
+                weather: 'storm',
+                name: 'a stormy night',
+                action: 'meet during the tempest'
+            },
+            dawn: {
+                time: 'morning',
+                weather: 'clear',
+                name: 'dawn',
+                action: 'arrive at first light'
+            },
+            dusk: {
+                time: 'evening',
+                weather: 'clear',
+                name: 'dusk',
+                action: 'arrive at twilight'
+            },
+            foggy_morning: {
+                time: 'morning',
+                weather: 'rain',
+                name: 'foggy dawn',
+                action: 'enter the fog'
+            },
+            any_night: {
+                time: 'night',
+                weather: 'any',
+                name: 'nighttime',
+                action: 'come under cover of darkness'
+            },
+            any_storm: {
+                time: 'any',
+                weather: 'storm',
+                name: 'a storm',
+                action: 'brave the storm'
             }
         };
     }
@@ -98,7 +156,50 @@ class QuestManager {
             case 'rescue':
                 quest = this.generateRescueQuest(quest, port, player);
                 break;
+            case 'rendezvous':
+                quest = this.generateRendezvousQuest(quest, port, player);
+                break;
         }
+
+        return quest;
+    }
+
+    /**
+     * Generate rendezvous quest with environmental conditions
+     */
+    generateRendezvousQuest(quest, port, player) {
+        const distance = 40 + Math.floor(this.seededRandom.random() * 80);
+        const angle = this.seededRandom.random() * Math.PI * 2;
+        const targetX = Math.round(port.x + Math.cos(angle) * distance);
+        const targetY = Math.round(port.y + Math.sin(angle) * distance);
+
+        // Select random condition
+        const conditionKeys = Object.keys(this.conditionTypes);
+        const conditionKey = conditionKeys[Math.floor(this.seededRandom.random() * conditionKeys.length)];
+        const condition = this.conditionTypes[conditionKey];
+
+        quest.rendezvous = {
+            x: targetX,
+            y: targetY,
+            radius: 3,
+            met: false,
+            conditionKey: conditionKey,
+            requiredTime: condition.time,
+            requiredWeather: condition.weather,
+            conditionName: condition.name
+        };
+
+        const contactNames = ['the Smuggler', 'Black Jack', 'the Informant', 'Captain Shadow', 'the Fence'];
+        const contactName = contactNames[Math.floor(this.seededRandom.random() * contactNames.length)];
+
+        const locationTypes = ['the cove', 'the hidden bay', 'the abandoned lighthouse', 'the smuggler\'s den', 'the secret inlet'];
+        const locationType = locationTypes[Math.floor(this.seededRandom.random() * locationTypes.length)];
+
+        quest.description = `${condition.action} at ${locationType} (${targetX}, ${targetY})`;
+        quest.detailedDesc = `${contactName} wants to meet you at ${locationType}, coordinates (${targetX}, ${targetY}). You must ${condition.action}. The meeting will not happen under any other conditions.`;
+        quest.timeLimit = Math.floor(distance); // More generous time limit
+        quest.contactName = contactName;
+        quest.locationName = locationType;
 
         return quest;
     }
@@ -126,9 +227,6 @@ class QuestManager {
         quest.timeLimit = Math.floor(distance / 2); // Time limit based on distance
         quest.description = `Deliver ${quest.cargo.name} to ${quest.destination.name} at (${targetX}, ${targetY})`;
         quest.detailedDesc = `The port master needs ${quest.cargo.name} delivered to ${quest.destination.name}. Distance: ${distance} tiles. Time limit: ${quest.timeLimit} turns.`;
-
-        // Weather consideration: increase time if player is in stormy area
-        quest.weatherAware = true;
 
         return quest;
     }
@@ -195,14 +293,37 @@ class QuestManager {
         const targetX = Math.round(port.x + Math.cos(angle) * distance);
         const targetY = Math.round(port.y + Math.sin(angle) * distance);
 
+        // 30% chance for conditional treasure (cursed, only visible at night, etc.)
+        const isConditional = this.seededRandom.random() < 0.3;
+        let condition = null;
+        let conditionDesc = '';
+
+        if (isConditional) {
+            const conditionKeys = ['dawn', 'dusk', 'any_night', 'stormy_night', 'foggy_morning'];
+            const conditionKey = conditionKeys[Math.floor(this.seededRandom.random() * conditionKeys.length)];
+            condition = this.conditionTypes[conditionKey];
+
+            const flavorTexts = [
+                `You must dig at ${condition.name}`,
+                `The treasure only reveals itself during ${condition.name}`,
+                `Ancient magic requires you to ${condition.action}`,
+                `The map warns: only visible during ${condition.name}`
+            ];
+            conditionDesc = ` ${flavorTexts[Math.floor(this.seededRandom.random() * flavorTexts.length)]}.`;
+        }
+
         quest.treasure = {
             x: targetX,
             y: targetY,
             value: 150 + Math.floor(this.seededRandom.random() * 200),
-            radius: 5 // Search area
+            radius: 5, // Search area
+            conditional: isConditional,
+            requiredTime: condition ? condition.time : null,
+            requiredWeather: condition ? condition.weather : null,
+            conditionName: condition ? condition.name : null
         };
-        quest.description = `Find treasure near (${targetX}, ${targetY})`;
-        quest.detailedDesc = `An old map shows treasure buried near coordinates (${targetX}, ${targetY}). The treasure is worth approximately ${quest.treasure.value}g. Distance: ${distance} tiles.`;
+        quest.description = `Find ${isConditional ? 'cursed ' : ''}treasure near (${targetX}, ${targetY})`;
+        quest.detailedDesc = `An old map shows treasure buried near coordinates (${targetX}, ${targetY}). The treasure is worth approximately ${quest.treasure.value}g. Distance: ${distance} tiles.${conditionDesc}`;
         quest.spawned = false;
 
         return quest;
@@ -282,26 +403,11 @@ class QuestManager {
      * @param {Object} weatherManager - Weather manager (optional)
      * @returns {Array} - Messages about quest updates
      */
-    updateQuests(player, entityManager, weatherManager = null) {
+    updateQuests(player, entityManager, weatherManager = null, fogOfWar = null) {
         const messages = [];
 
         this.activeQuests.forEach(quest => {
             if (quest.status !== 'active') return;
-
-            // Weather-aware time limit adjustment
-            let turnIncrement = 1;
-            if (quest.weatherAware && weatherManager) {
-                const weather = weatherManager.getWeatherName(player.x, player.y);
-                if (weather === 'storm' || weather === 'hurricane') {
-                    turnIncrement = 0.5; // Storms slow progress, so time passes slower
-                    if (!quest.stormWarningShown) {
-                        messages.push(`⛈️ Storm delays your quest progress!`);
-                        quest.stormWarningShown = true;
-                    }
-                } else {
-                    quest.stormWarningShown = false;
-                }
-            }
 
             // Check time limit
             if (quest.timeLimit && quest.turnCount >= quest.timeLimit) {
@@ -310,7 +416,7 @@ class QuestManager {
                 return;
             }
 
-            quest.turnCount = (quest.turnCount || 0) + turnIncrement;
+            quest.turnCount = (quest.turnCount || 0) + 1;
 
             // Trigger region generation when approaching quest targets
             this.ensureQuestRegionGenerated(quest, player, entityManager);
@@ -324,8 +430,11 @@ class QuestManager {
                     break;
 
                 case 'treasure_hunt':
-                    if (this.checkTreasureHuntProgress(quest, player, entityManager)) {
+                    const treasureUpdate = this.checkTreasureHuntProgress(quest, player, entityManager, weatherManager, fogOfWar);
+                    if (treasureUpdate === true) {
                         messages.push(`💰 Treasure found! Return to the quest giver to claim your reward.`);
+                    } else if (typeof treasureUpdate === 'string') {
+                        messages.push(treasureUpdate);
                     }
                     break;
 
@@ -348,10 +457,106 @@ class QuestManager {
                         messages.push(`🎯 Bounty target spotted! Hunt them down!`);
                     }
                     break;
+
+                case 'rendezvous':
+                    const rendezvousUpdate = this.checkRendezvousProgress(quest, player, weatherManager, fogOfWar);
+                    if (rendezvousUpdate) {
+                        messages.push(rendezvousUpdate);
+                    }
+                    break;
             }
         });
 
         return messages;
+    }
+
+    /**
+     * Check if current conditions match quest requirements
+     */
+    checkConditions(requiredTime, requiredWeather, weatherManager, fogOfWar) {
+        if (!weatherManager || !fogOfWar) {
+            return { met: false, reason: 'Cannot determine conditions' };
+        }
+
+        // Get current time of day
+        const timeOfDay = fogOfWar.getTimeOfDay();
+
+        // Get current weather
+        const currentWeather = weatherManager.getWeatherName(0, 0); // Weather is global-ish
+
+        // Check time requirement
+        let timeMet = false;
+        if (requiredTime === 'any') {
+            timeMet = true;
+        } else if (requiredTime === 'night') {
+            timeMet = timeOfDay === 'night';
+        } else if (requiredTime === 'day') {
+            timeMet = timeOfDay === 'day' || timeOfDay === 'morning' || timeOfDay === 'afternoon';
+        } else if (requiredTime === 'morning') {
+            timeMet = timeOfDay === 'morning';
+        } else if (requiredTime === 'evening') {
+            timeMet = timeOfDay === 'evening';
+        }
+
+        // Check weather requirement
+        let weatherMet = false;
+        if (requiredWeather === 'any') {
+            weatherMet = true;
+        } else if (requiredWeather === 'clear') {
+            weatherMet = currentWeather === 'clear' || currentWeather === 'none';
+        } else if (requiredWeather === 'storm') {
+            weatherMet = currentWeather === 'storm' || currentWeather === 'hurricane';
+        } else if (requiredWeather === 'rain') {
+            weatherMet = currentWeather === 'rain';
+        }
+
+        if (timeMet && weatherMet) {
+            return { met: true };
+        } else {
+            const reasons = [];
+            if (!timeMet) reasons.push(`wrong time (need ${requiredTime}, currently ${timeOfDay})`);
+            if (!weatherMet) reasons.push(`wrong weather (need ${requiredWeather}, currently ${currentWeather})`);
+            return { met: false, reason: reasons.join(', ') };
+        }
+    }
+
+    /**
+     * Check rendezvous quest progress
+     */
+    checkRendezvousProgress(quest, player, weatherManager, fogOfWar) {
+        const dx = player.x - quest.rendezvous.x;
+        const dy = player.y - quest.rendezvous.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance <= quest.rendezvous.radius) {
+            // At location, check conditions
+            const conditionCheck = this.checkConditions(
+                quest.rendezvous.requiredTime,
+                quest.rendezvous.requiredWeather,
+                weatherManager,
+                fogOfWar
+            );
+
+            if (conditionCheck.met) {
+                if (!quest.rendezvous.met) {
+                    quest.rendezvous.met = true;
+                    quest.progress = 100;
+                    quest.status = 'completed';
+                    return `🌙 Met ${quest.contactName} during ${quest.rendezvous.conditionName}! Return to port to complete quest.`;
+                }
+            } else {
+                // At location but wrong conditions
+                if (!quest.conditionWarningShown || quest.lastConditionReason !== conditionCheck.reason) {
+                    quest.conditionWarningShown = true;
+                    quest.lastConditionReason = conditionCheck.reason;
+                    return `🕐 At rendezvous point, but conditions aren't right: ${conditionCheck.reason}`;
+                }
+            }
+        } else {
+            quest.conditionWarningShown = false;
+        }
+
+        return null;
     }
 
     /**
@@ -478,32 +683,55 @@ class QuestManager {
     /**
      * Check treasure hunt progress
      */
-    checkTreasureHuntProgress(quest, player, entityManager) {
+    checkTreasureHuntProgress(quest, player, entityManager, weatherManager, fogOfWar) {
         const dx = player.x - quest.treasure.x;
         const dy = player.y - quest.treasure.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
 
         if (distance <= quest.treasure.radius && !quest.spawned) {
-            // Spawn treasure at location
+            // Check if treasure is conditional
+            if (quest.treasure.conditional) {
+                const conditionCheck = this.checkConditions(
+                    quest.treasure.requiredTime,
+                    quest.treasure.requiredWeather,
+                    weatherManager,
+                    fogOfWar
+                );
+
+                if (!conditionCheck.met) {
+                    // At location but wrong conditions
+                    if (!quest.conditionWarningShown || quest.lastConditionReason !== conditionCheck.reason) {
+                        quest.conditionWarningShown = true;
+                        quest.lastConditionReason = conditionCheck.reason;
+                        return `🗺️ At treasure location, but the magic won't reveal it: ${conditionCheck.reason}`;
+                    }
+                    return false;
+                }
+            }
+
+            // Conditions met or no conditions required - spawn treasure
             const treasure = {
                 type: 'treasure',
                 x: quest.treasure.x,
                 y: quest.treasure.y,
                 char: '$',
-                color: '#f39c12',
+                color: quest.treasure.conditional ? '#9b59b6' : '#f39c12', // Purple for cursed treasure
                 questTreasure: true,
                 questId: quest.id,
                 treasureData: {
                     type: 'treasure',
-                    name: 'Quest Treasure',
+                    name: quest.treasure.conditional ? 'Cursed Treasure' : 'Quest Treasure',
                     value: quest.treasure.value,
                     weight: 3,
-                    rarity: 'rare'
+                    rarity: quest.treasure.conditional ? 'legendary' : 'rare'
                 }
             };
             entityManager.addEntity(treasure);
             quest.spawned = true;
+            quest.conditionWarningShown = false;
             return true;
+        } else {
+            quest.conditionWarningShown = false;
         }
         return false;
     }
