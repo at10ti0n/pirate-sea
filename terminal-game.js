@@ -16,6 +16,9 @@ const TerminalDisplayAdapter = require('./terminal-display-adapter');
 const MapGenerator = require('./map');
 const Player = require('./player');
 const EntityManager = require('./entities');
+const CrewManager = require('./crew');
+const CombatManager = require('./combat');
+const QuestManager = require('./quests');
 
 // PHASE 2-4: Using shared modules - TerminalMapGenerator, TerminalPlayer, and TerminalEntityManager removed
 
@@ -72,6 +75,11 @@ class TerminalGame {
         // Initialize food and rest systems
         this.foodSystem = new FoodSystem();
         this.shipProvisionsSystem = new ShipProvisions();
+
+        // Initialize crew, combat, and quest systems
+        this.crewManager = new CrewManager(this.mapGenerator.seededRandom);
+        this.combatManager = new CombatManager(this.mapGenerator.seededRandom);
+        this.questManager = new QuestManager(this.mapGenerator.seededRandom);
 
         this.setupReadline();
     }
@@ -132,8 +140,18 @@ class TerminalGame {
         // Link inventory to player for economy system compatibility
         this.player.inventory = this.playerInventory;
 
+        // Initialize player crew
+        if (this.crewManager) {
+            this.player.initializeCrew(this.crewManager);
+        }
+
         // Spawn all entities using island-aware system
         this.entityManager.spawnEntities(this.player.x, this.player.y);
+
+        // Spawn enemy ships
+        if (this.combatManager) {
+            this.combatManager.spawnEnemyShips(this.entityManager, this.player.x, this.player.y);
+        }
 
         // Generate initial weather
         this.weatherManager.generateWeather(this.player.x, this.player.y);
@@ -238,6 +256,36 @@ class TerminalGame {
         this.applyWeatherEffects();
         this.checkWeatherWarnings();
         this.checkDangerZone(); // Phase 2: Danger zone warnings
+
+        // Update crew morale
+        if (this.player.crew && this.crewManager) {
+            const weather = this.weatherManager.getWeatherAt(this.player.x, this.player.y);
+            const conditions = {
+                hasFood: this.player.food > 20,
+                hasWater: true, // Simplified for terminal
+                paidWages: this.turnCount % 10 !== 0, // Wages due every 10 turns
+                inCombat: false,
+                shipDamaged: this.player.shipHull < this.player.maxShipHull * 0.5,
+                weatherSeverity: weather && weather.type === 'storm' ? 0.8 : weather && weather.type === 'hurricane' ? 1.0 : 0
+            };
+            this.player.updateCrewMorale(this.crewManager, conditions);
+        }
+
+        // Update enemy AI and check for combat
+        if (this.combatManager) {
+            this.combatManager.updateEnemyAI(this.entityManager, this.player);
+        }
+
+        // Update quests
+        if (this.questManager) {
+            const questMessages = this.questManager.updateQuests(
+                this.player,
+                this.entityManager,
+                this.weatherManager,
+                this.fogOfWar
+            );
+            questMessages.forEach(msg => this.addMessage(msg));
+        }
 
         this.render();
     }
@@ -1571,6 +1619,44 @@ class TerminalGame {
         console.log(`║   Hull:    ${hullColor}${hullBar}\x1b[0m ${String(shipStats.hull).padStart(3)}/${String(shipStats.maxHull).padEnd(3)} HP${' '.repeat(25)} ║`);
 
         console.log('╠════════════════════════════════════════════════════════════════════════════╣');
+
+        // Crew Status Section (only if player has crew)
+        if (this.player.crew && this.player.crew.members && this.player.crew.members.length > 0) {
+            console.log(`║ \x1b[1mCREW\x1b[0m                                                                        ║`);
+
+            // Crew size and wages
+            const crewSize = this.player.crew.members.length;
+            const totalWages = this.player.crew.totalWages || 0;
+            console.log(`║   Size: ${String(crewSize).padEnd(3)} sailors${' '.repeat(13)}Wages: ${String(totalWages).padEnd(3)}g/turn${' '.repeat(20)} ║`);
+
+            // Morale bar
+            const morale = this.player.crew.morale || 50;
+            const moraleBar = this.createBar(morale, 20);
+            const moraleColor = morale > 60 ? '\x1b[32m' : morale > 30 ? '\x1b[33m' : '\x1b[31m';
+
+            // Mutiny risk
+            const mutinyRisk = this.player.crew.mutinyRisk || 'low';
+            const mutinyIcons = {
+                low: '🟢',
+                moderate: '🟡',
+                high: '🟠',
+                imminent: '🔴'
+            };
+            const mutinyIcon = mutinyIcons[mutinyRisk] || '🟢';
+
+            console.log(`║   Morale:  ${moraleColor}${moraleBar}\x1b[0m ${String(Math.floor(morale)).padStart(3)}% ${mutinyIcon} ${mutinyRisk.padEnd(9)}${' '.repeat(10)} ║`);
+
+            // Crew bonuses (if available)
+            if (this.player.crew.avgSkills) {
+                const skills = this.player.crew.avgSkills;
+                const navSkill = Math.floor(skills.navigation * 10);
+                const combatSkill = Math.floor(skills.combat * 10);
+                const repairSkill = Math.floor(skills.repair * 10);
+                console.log(`║   Skills: Nav:${String(navSkill).padStart(2)}/10  Combat:${String(combatSkill).padStart(2)}/10  Repair:${String(repairSkill).padStart(2)}/10${' '.repeat(22)} ║`);
+            }
+
+            console.log('╠════════════════════════════════════════════════════════════════════════════╣');
+        }
 
         // Environment Section
         console.log(`║ \x1b[1mENVIRONMENT\x1b[0m                                                                 ║`);
