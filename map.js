@@ -1,4 +1,15 @@
 // Map generation and biome system
+
+// Load dependencies for Node.js environment
+if (typeof require !== 'undefined') {
+    if (typeof SeededRandom === 'undefined') {
+        var SeededRandom = require('./seeded-random');
+    }
+    if (typeof ROT === 'undefined') {
+        var ROT = require('rot-js');
+    }
+}
+
 class MapGenerator {
     constructor(width = 48, height = 28, seed = null) {
         this.displayWidth = width;
@@ -22,12 +33,12 @@ class MapGenerator {
         this.biomes = {
             ocean: { char: '~', color: '#2980b9', walkable: false, shipWalkable: true },
             beach: { char: '.', color: '#f39c12', walkable: true, shipWalkable: false },
-            mountain: { char: '^', color: '#7f8c8d', walkable: false, shipWalkable: false },
-            snow: { char: '*', color: '#ecf0f1', walkable: false, shipWalkable: false },
+            mountain: { char: '^', color: '#7f8c8d', walkable: true, shipWalkable: false },
+            snow: { char: '*', color: '#ecf0f1', walkable: true, shipWalkable: false },
             desert: { char: ':', color: '#e67e22', walkable: true, shipWalkable: false },
             savanna: { char: '"', color: '#d35400', walkable: true, shipWalkable: false },
             jungle: { char: '#', color: '#27ae60', walkable: true, shipWalkable: false },
-            swamp: { char: '%', color: '#16a085', walkable: false, shipWalkable: false },
+            swamp: { char: '%', color: '#16a085', walkable: true, shipWalkable: false },
             taiga: { char: 'T', color: '#2c3e50', walkable: true, shipWalkable: false },
             tropical: { char: 't', color: '#e74c3c', walkable: true, shipWalkable: false },
             forest: { char: '♠', color: '#229954', walkable: true, shipWalkable: false }
@@ -101,13 +112,50 @@ class MapGenerator {
             elevation += (chain3 - 0.82) * 1.0;
         }
         
-        // Generate moisture and temperature
-        const moisture = (this.moistureNoise.get(x * 0.09 + 100, y * 0.09 + 100) + 1) / 2;
-        const temperature = (this.temperatureNoise.get(x * 0.07 + 200, y * 0.07 + 200) + 1) / 2;
-        
-        // Clamp elevation
+        // Generate moisture (keep original)
+        let moisture = (this.moistureNoise.get(x * 0.09 + 100, y * 0.09 + 100) + 1) / 2;
+
+        // Generate latitude-based temperature (asymptotic approach for infinite world)
+        // World center (y=0) = equator (hottest)
+        // Temperature decreases away from equator but never reaches absolute zero
+        // Uses atan for asymptotic curve - temperature approaches minimum but infinite exploration possible
+        const latitudeEffect = Math.atan(Math.abs(y) / 300) / (Math.PI / 2); // 0-1 range, slower falloff
+        const latitudeTemp = Math.max(0.3, 1.0 - (latitudeEffect * 0.7)); // Approaches 30% warmth minimum
+
+        // Combine latitude with noise for variation
+        const temperatureNoise = (this.temperatureNoise.get(x * 0.07 + 200, y * 0.07 + 200) + 1) / 2;
+        let temperature = (latitudeTemp * 0.7) + (temperatureNoise * 0.3); // 70% latitude, 30% noise
+
+        // Clamp elevation first (needed for climate calculations)
         elevation = Math.max(0, Math.min(1, elevation));
-        
+
+        // Phase 3: Elevation temperature lapse
+        // Temperature drops with elevation (cooler at high altitudes)
+        if (elevation > 0.45) { // Only affects land above sea level
+            const elevationEffect = (elevation - 0.45) * 0.6; // Up to -33% at peaks
+            temperature = temperature * (1.0 - elevationEffect);
+        }
+
+        // Phase 3: Rain shadow effect
+        // Check for mountains to the west (prevailing wind direction)
+        const checkDistance = 5; // Check 5 tiles upwind
+        let hasUpwindMountain = false;
+        for (let i = 1; i <= checkDistance; i++) {
+            const upwindX = x - i; // West is negative x
+            const upwindTile = this.map.get(`${upwindX},${y}`);
+            if (upwindTile && upwindTile.elevation > 0.75) { // Mountain height
+                hasUpwindMountain = true;
+                break;
+            }
+        }
+        if (hasUpwindMountain && elevation < 0.75) { // Rain shadow on leeward side
+            moisture = moisture * 0.4; // Significantly drier (60% reduction)
+        }
+
+        // Clamp climate values to 0-1 range after all modifications
+        temperature = Math.max(0, Math.min(1, temperature));
+        moisture = Math.max(0, Math.min(1, moisture));
+
         // Determine initial biome
         let biome = this.determineBiome(elevation, moisture, temperature);
         
@@ -168,7 +216,8 @@ class MapGenerator {
         } else if (elevation < 0.45) { // Beaches - coastal areas
             return 'beach';
         } else if (elevation > 0.9) { // Only highest peaks become mountains
-            if (temperature < 0.4) {
+            // Adjusted for asymptotic temperature system (min ~0.3)
+            if (temperature < 0.5) {
                 return 'snow';
             } else {
                 return 'mountain';
@@ -185,7 +234,7 @@ class MapGenerator {
             } else {
                 return 'swamp';
             }
-        } else if (temperature < 0.2) { // Very cold
+        } else if (temperature < 0.35) { // Very cold (adjusted for asymptotic system)
             return 'taiga';
         } else if (temperature > 0.8) { // Very hot
             return 'tropical';
@@ -431,47 +480,125 @@ class MapGenerator {
         return walkableTiles;
     }
 
-    // Generate resource glyph for a specific position (web version)
-    generateResourceGlyph(x, y, biomeType, resourceManager) {
-        if (!resourceManager) return this.biomes[biomeType];
-        
+    // Get height tier name from elevation value
+    getHeightTier(elevation) {
+        if (elevation < 0.30) return 'deep_ocean';
+        if (elevation < 0.40) return 'shallow_ocean';
+        if (elevation < 0.45) return 'beach';
+        if (elevation < 0.60) return 'lowlands';
+        if (elevation < 0.75) return 'hills';
+        if (elevation < 0.90) return 'mountains';
+        return 'peaks';
+    }
+
+    // Convert elevation to approximate meters
+    elevationToMeters(elevation) {
+        // Map 0.0-1.0 elevation to -500m to 2000m
+        return Math.round((elevation * 2500) - 500);
+    }
+
+    // Get elevation shading factor (0.0 = darkest, 1.0 = lightest)
+    getElevationShade(elevation) {
+        // Ocean depths get darker
+        if (elevation < 0.40) {
+            // Deep ocean: 0.5x brightness, shallow: 0.7x brightness
+            return 0.5 + (elevation / 0.40) * 0.2;
+        }
+        // Land gets lighter with elevation (subtle effect)
+        if (elevation > 0.45) {
+            // Land: 1.0x to 1.15x brightness (slight lightening at peaks)
+            return 1.0 + ((elevation - 0.45) / 0.55) * 0.15;
+        }
+        // Beach is neutral
+        return 1.0;
+    }
+
+    // Adjust hex color brightness by factor
+    adjustColorBrightness(hexColor, factor) {
+        // Remove # if present
+        const hex = hexColor.replace('#', '');
+
+        // Parse RGB
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+
+        // Apply brightness factor
+        const newR = Math.min(255, Math.max(0, Math.round(r * factor)));
+        const newG = Math.min(255, Math.max(0, Math.round(g * factor)));
+        const newB = Math.min(255, Math.max(0, Math.round(b * factor)));
+
+        // Convert back to hex
+        const toHex = (n) => n.toString(16).padStart(2, '0');
+        return `#${toHex(newR)}${toHex(newG)}${toHex(newB)}`;
+    }
+
+    // Generate resource glyph for a specific position
+    generateResourceGlyph(x, y, biomeType, resourceManager, platform = 'web') {
+        // Get tile elevation for shading
+        const tile = this.getBiomeAt(x, y);
+        const elevation = tile ? tile.elevation : 0.5;
+        const shadeFactor = this.getElevationShade(elevation);
+
+        if (!resourceManager) {
+            const biome = this.biomes[biomeType];
+            return {
+                char: biome.char,
+                color: this.adjustColorBrightness(biome.color, shadeFactor),
+                walkable: biome.walkable,
+                shipWalkable: biome.shipWalkable
+            };
+        }
+
         const biomeConfig = resourceManager.getBiomeResources(biomeType);
         if (!biomeConfig || !biomeConfig.glyphDistribution) {
-            return this.biomes[biomeType];
+            const biome = this.biomes[biomeType];
+            return {
+                char: biome.char,
+                color: this.adjustColorBrightness(biome.color, shadeFactor),
+                walkable: biome.walkable,
+                shipWalkable: biome.shipWalkable
+            };
         }
 
         // Use position-based seeded random for deterministic glyph generation
         const positionSeed = this.seed + (x * 1000) + (y * 1000000);
         const positionRandom = new SeededRandom(positionSeed);
-        
+
         // Calculate total weight
         let totalWeight = 0;
         for (const glyph of biomeConfig.glyphDistribution) {
             totalWeight += glyph.weight;
         }
-        
+
         // Select glyph based on weight
         const randomValue = positionRandom.random() * totalWeight;
         let currentWeight = 0;
-        
+
         for (const glyphConfig of biomeConfig.glyphDistribution) {
             currentWeight += glyphConfig.weight;
             if (randomValue <= currentWeight) {
                 if (glyphConfig.glyph === 'biome_fallback') {
-                    // Return original biome glyph
-                    return this.biomes[biomeType];
+                    // Return original biome glyph with elevation shading
+                    const biome = this.biomes[biomeType];
+                    return {
+                        char: biome.char,
+                        color: this.adjustColorBrightness(biome.color, shadeFactor),
+                        walkable: biome.walkable,
+                        shipWalkable: biome.shipWalkable
+                    };
                 } else {
                     // Check if location is depleted for visual representation
                     const isDepleted = resourceManager.isLocationVisuallyDepleted(x, y);
-                    
+
                     // Return resource glyph (normal or depleted variant)
-                    const resourceGlyph = resourceManager.getResourceGlyph(glyphConfig.glyph, 'web', isDepleted);
+                    const resourceGlyph = resourceManager.getResourceGlyph(glyphConfig.glyph, platform, isDepleted);
                     const resourceColor = resourceManager.getResourceColor(glyphConfig.glyph, isDepleted) || this.biomes[biomeType].color;
-                    
+
                     if (resourceGlyph) {
                         return {
                             char: resourceGlyph,
-                            color: resourceColor,
+                            color: this.adjustColorBrightness(resourceColor, shadeFactor),
                             walkable: this.biomes[biomeType].walkable,
                             shipWalkable: this.biomes[biomeType].shipWalkable,
                             resourceType: glyphConfig.glyph,
@@ -675,4 +802,9 @@ class MapGenerator {
         const tempRandom = new SeededRandom(positionSeed);
         return tempRandom.random();
     }
+}
+
+// Export for both browser and Node.js
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = MapGenerator;
 }

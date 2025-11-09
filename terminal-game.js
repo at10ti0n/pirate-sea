@@ -8,819 +8,42 @@ const PlayerInventory = require('./player-inventory');
 const EconomyManager = require('./economy');
 const WeatherManager = require('./weather');
 const FogOfWar = require('./fog');
-
-// Seeded random number generator for deterministic procedural generation
-class SeededRandom {
-    constructor(seed = Date.now()) {
-        this.seed = seed;
-        this.state = this.hashSeed(seed);
-    }
-    
-    // Simple hash function to convert seed to initial state
-    hashSeed(seed) {
-        let hash = 0;
-        const str = seed.toString();
-        for (let i = 0; i < str.length; i++) {
-            const char = str.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash = hash & hash; // Convert to 32-bit integer
-        }
-        return Math.abs(hash) || 1; // Ensure non-zero
-    }
-    
-    // Linear Congruential Generator (LCG) for deterministic random numbers
-    next() {
-        this.state = (this.state * 1664525 + 1013904223) % 4294967296;
-        return this.state / 4294967296;
-    }
-    
-    // Generate random float between 0 and 1
-    random() {
-        return this.next();
-    }
-    
-    // Generate random integer between min and max (inclusive)
-    randomInt(min, max) {
-        return Math.floor(this.random() * (max - min + 1)) + min;
-    }
-    
-    // Generate random float between min and max
-    randomFloat(min, max) {
-        return this.random() * (max - min) + min;
-    }
-    
-    // Choose random element from array
-    choice(array) {
-        if (array.length === 0) return undefined;
-        return array[Math.floor(this.random() * array.length)];
-    }
-}
-
-// Import game modules (adapted for Node.js)
-class TerminalMapGenerator {
-    constructor(width = 48, height = 28, seed = null) {
-        this.displayWidth = width;
-        this.displayHeight = height;
-        this.worldSize = 200;
-        this.map = new Map();
-        this.biomes = {};
-        this.cameraX = 0;
-        this.cameraY = 0;
-        
-        // Initialize seeded random system
-        this.seed = seed || Date.now();
-        this.seededRandom = new SeededRandom(this.seed);
-        
-        this.initializeBiomes();
-        
-        console.log(`TerminalMapGenerator initialized with seed: ${this.seed}`);
-    }
-
-    initializeBiomes() {
-        this.biomes = {
-            ocean: { char: '~', color: '\x1b[34m', walkable: false, shipWalkable: true },
-            beach: { char: '.', color: '\x1b[33m', walkable: true, shipWalkable: false },
-            mountain: { char: '^', color: '\x1b[37m', walkable: false, shipWalkable: false },
-            snow: { char: '*', color: '\x1b[97m', walkable: false, shipWalkable: false },
-            desert: { char: ':', color: '\x1b[31m', walkable: true, shipWalkable: false },
-            savanna: { char: '"', color: '\x1b[91m', walkable: true, shipWalkable: false },
-            jungle: { char: '#', color: '\x1b[32m', walkable: true, shipWalkable: false },
-            swamp: { char: '%', color: '\x1b[36m', walkable: false, shipWalkable: false },
-            taiga: { char: 'T', color: '\x1b[90m', walkable: true, shipWalkable: false },
-            tropical: { char: 't', color: '\x1b[35m', walkable: true, shipWalkable: false },
-            forest: { char: '♠', color: '\x1b[92m', walkable: true, shipWalkable: false }
-        };
-    }
-
-    generateMap() {
-        console.log(`Generating infinite map system with seed: ${this.seed}...`);
-
-        this.elevationNoise = new ROT.Noise.Simplex();
-        this.moistureNoise = new ROT.Noise.Simplex();
-        this.temperatureNoise = new ROT.Noise.Simplex();
-
-        // Seed the ROT.js noise generators if possible
-        if (this.elevationNoise.setSeed) {
-            this.elevationNoise.setSeed(this.seed);
-            this.moistureNoise.setSeed(this.seed + 1000);
-            this.temperatureNoise.setSeed(this.seed + 2000);
-        }
-
-        console.log('Infinite map system ready');
-        return this.map;
-    }
-
-    generateChunkAt(x, y) {
-        const key = `${x},${y}`;
-        if (this.map.has(key)) {
-            return this.map.get(key);
-        }
-
-        const baseScale = 0.025;
-        const islandScale = 0.12;
-        const atollScale = 0.2;
-
-        let elevation = 0.2;
-
-        const continentNoise = (this.elevationNoise.get(x * baseScale, y * baseScale) + 1) / 2;
-        if (continentNoise > 0.75) {
-            elevation += (continentNoise - 0.75) * 1.8;
-        }
-
-        const islandNoise = (this.elevationNoise.get(x * islandScale + 500, y * islandScale + 500) + 1) / 2;
-        if (islandNoise > 0.7) {
-            elevation += (islandNoise - 0.7) * 1.3;
-        }
-
-        const atollNoise = (this.elevationNoise.get(x * atollScale + 1000, y * atollScale + 1000) + 1) / 2;
-        if (atollNoise > 0.75) {
-            elevation += (atollNoise - 0.75) * 1.0;
-        }
-
-        const chainScale = 0.06;
-        const chain1 = (this.elevationNoise.get(x * chainScale + 1500, y * chainScale + 1500) + 1) / 2;
-        const chain2 = (this.elevationNoise.get(x * chainScale + 2500, y * chainScale + 2500) + 1) / 2;
-        const chain3 = (this.elevationNoise.get(x * chainScale + 3500, y * chainScale + 3500) + 1) / 2;
-
-        if (chain1 > 0.8) elevation += (chain1 - 0.8) * 1.5;
-        if (chain2 > 0.85) elevation += (chain2 - 0.85) * 1.2;
-        if (chain3 > 0.82) elevation += (chain3 - 0.82) * 1.0;
-
-        const moisture = (this.moistureNoise.get(x * 0.09 + 100, y * 0.09 + 100) + 1) / 2;
-        const temperature = (this.temperatureNoise.get(x * 0.07 + 200, y * 0.07 + 200) + 1) / 2;
-
-        elevation = Math.max(0, Math.min(1, elevation));
-
-        let biome = this.determineBiome(elevation, moisture, temperature);
-
-        if (biome !== 'ocean') {
-            const landmassSize = this.getLandmassSize(x, y, biome);
-            if (landmassSize < 9) {
-                biome = 'ocean';
-            }
-        }
-
-        const tile = {
-            x: x,
-            y: y,
-            biome: biome,
-            elevation: elevation,
-            moisture: moisture,
-            temperature: temperature,
-            visible: false,
-            explored: false
-        };
-
-        this.map.set(key, tile);
-        return tile;
-    }
-
-    determineBiome(elevation, moisture, temperature) {
-        if (elevation < 0.3) return 'ocean';
-        else if (elevation < 0.4) return 'ocean';
-        else if (elevation < 0.45) return 'beach';
-        else if (elevation > 0.9) {
-            if (temperature < 0.4) return 'snow';
-            else return 'mountain';
-        } else if (moisture < 0.15) {
-            if (temperature > 0.75) return 'desert';
-            else return 'savanna';
-        } else if (moisture > 0.85) {
-            if (temperature > 0.75) return 'jungle';
-            else return 'swamp';
-        } else if (temperature < 0.2) return 'taiga';
-        else if (temperature > 0.8) return 'tropical';
-        else return 'forest';
-    }
-
-    getLandmassSize(x, y, targetBiome, visited = new Set(), maxSize = 20) {
-        const key = `${x},${y}`;
-        if (visited.has(key) || visited.size >= maxSize) return visited.size >= maxSize ? maxSize : 0;
-
-        const baseScale = 0.025;
-        const islandScale = 0.12;
-        const atollScale = 0.2;
-
-        let elevation = 0.2;
-
-        const continentNoise = (this.elevationNoise.get(x * baseScale, y * baseScale) + 1) / 2;
-        if (continentNoise > 0.75) {
-            elevation += (continentNoise - 0.75) * 1.8;
-        }
-
-        const islandNoise = (this.elevationNoise.get(x * islandScale + 500, y * islandScale + 500) + 1) / 2;
-        if (islandNoise > 0.7) {
-            elevation += (islandNoise - 0.7) * 1.3;
-        }
-
-        const atollNoise = (this.elevationNoise.get(x * atollScale + 1000, y * atollScale + 1000) + 1) / 2;
-        if (atollNoise > 0.75) {
-            elevation += (atollNoise - 0.75) * 1.0;
-        }
-
-        const chainScale = 0.06;
-        const chain1 = (this.elevationNoise.get(x * chainScale + 1500, y * chainScale + 1500) + 1) / 2;
-        const chain2 = (this.elevationNoise.get(x * chainScale + 2500, y * chainScale + 2500) + 1) / 2;
-        const chain3 = (this.elevationNoise.get(x * chainScale + 3500, y * chainScale + 3500) + 1) / 2;
-
-        if (chain1 > 0.8) elevation += (chain1 - 0.8) * 1.5;
-        if (chain2 > 0.85) elevation += (chain2 - 0.85) * 1.2;
-        if (chain3 > 0.82) elevation += (chain3 - 0.82) * 1.0;
-
-        const moisture = (this.moistureNoise.get(x * 0.09 + 100, y * 0.09 + 100) + 1) / 2;
-        const temperature = (this.temperatureNoise.get(x * 0.07 + 200, y * 0.07 + 200) + 1) / 2;
-
-        elevation = Math.max(0, Math.min(1, elevation));
-
-        const tempBiome = this.determineBiome(elevation, moisture, temperature);
-        if (tempBiome === 'ocean') return 0;
-
-        visited.add(key);
-        let size = 1;
-
-        const directions = [[0, 1], [0, -1], [1, 0], [-1, 0]];
-        for (const [dx, dy] of directions) {
-            if (visited.size < maxSize) {
-                size += this.getLandmassSize(x + dx, y + dy, targetBiome, visited, maxSize);
-            }
-        }
-
-        return size;
-    }
-
-    updateCamera(playerX, playerY) {
-        this.cameraX = playerX - Math.floor(this.displayWidth / 2);
-        this.cameraY = playerY - Math.floor(this.displayHeight / 2);
-    }
-
-    getVisibleTiles() {
-        const tiles = [];
-        for (let y = 0; y < this.displayHeight; y++) {
-            for (let x = 0; x < this.displayWidth; x++) {
-                const worldX = this.cameraX + x;
-                const worldY = this.cameraY + y;
-                const tile = this.generateChunkAt(worldX, worldY);
-                tiles.push({
-                    tile: tile,
-                    screenX: x,
-                    screenY: y,
-                    worldX: worldX,
-                    worldY: worldY
-                });
-            }
-        }
-        return tiles;
-    }
-
-    getBiomeAt(x, y) {
-        return this.generateChunkAt(x, y);
-    }
-
-    getBiomeInfo(biomeName) {
-        return this.biomes[biomeName];
-    }
-
-    // Generate resource glyph for a specific position
-    generateResourceGlyph(x, y, biomeType, resourceManager) {
-        if (!resourceManager) return this.biomes[biomeType];
-        
-        const biomeConfig = resourceManager.getBiomeResources(biomeType);
-        if (!biomeConfig || !biomeConfig.glyphDistribution) {
-            return this.biomes[biomeType];
-        }
-
-        // Use position-based seeded random for deterministic glyph generation
-        const positionSeed = this.seed + (x * 1000) + (y * 1000000);
-        const positionRandom = new SeededRandom(positionSeed);
-        
-        // Calculate total weight
-        let totalWeight = 0;
-        for (const glyph of biomeConfig.glyphDistribution) {
-            totalWeight += glyph.weight;
-        }
-        
-        // Select glyph based on weight
-        const randomValue = positionRandom.random() * totalWeight;
-        let currentWeight = 0;
-        
-        for (const glyphConfig of biomeConfig.glyphDistribution) {
-            currentWeight += glyphConfig.weight;
-            if (randomValue <= currentWeight) {
-                if (glyphConfig.glyph === 'biome_fallback') {
-                    // Return original biome glyph
-                    return this.biomes[biomeType];
-                } else {
-                    // Check if location is depleted for visual representation
-                    const isDepleted = resourceManager.isLocationVisuallyDepleted(x, y);
-                    
-                    // Return resource glyph (normal or depleted variant)
-                    const resourceGlyph = resourceManager.getResourceGlyph(glyphConfig.glyph, 'terminal', isDepleted);
-                    const resourceColor = resourceManager.getResourceColor(glyphConfig.glyph, isDepleted) || this.biomes[biomeType].color;
-                    
-                    if (resourceGlyph) {
-                        return {
-                            char: resourceGlyph,
-                            color: this.convertColorToTerminal(resourceColor),
-                            walkable: this.biomes[biomeType].walkable,
-                            shipWalkable: this.biomes[biomeType].shipWalkable,
-                            resourceType: glyphConfig.glyph,
-                            depleted: isDepleted
-                        };
-                    }
-                }
-            }
-        }
-        
-        // Fallback to original biome
-        return this.biomes[biomeType];
-    }
-
-    // Convert hex color to terminal color code
-    convertColorToTerminal(hexColor) {
-        // Simple color mapping for terminal display
-        const colorMap = {
-            '#7f8c8d': '\x1b[37m',  // Gray
-            '#f39c12': '\x1b[33m',  // Orange
-            '#27ae60': '\x1b[32m',  // Green
-            '#f1c40f': '\x1b[93m',  // Yellow
-            '#34495e': '\x1b[90m',  // Dark Gray
-            '#e74c3c': '\x1b[31m',  // Red
-            '#16a085': '\x1b[36m'   // Teal
-        };
-        
-        return colorMap[hexColor] || '\x1b[37m';
-    }
-
-    // Analyze landmass for port tier determination
-    analyzeLandmass(startX, startY, maxSize = 150) {
-        const tile = this.getBiomeAt(startX, startY);
-        if (!tile || tile.biome === 'ocean') {
-            return { size: 0, biomes: {}, diversity: 0, richness: 0 };
-        }
-
-        const visited = new Set();
-        const biomeCount = {};
-        const queue = [[startX, startY]];
-
-        // Biome richness scores (more valuable biomes = higher scores)
-        const biomeValue = {
-            forest: 3,
-            jungle: 3,
-            tropical: 3,
-            beach: 2,
-            savanna: 2,
-            taiga: 2,
-            desert: 1,
-            swamp: 1,
-            mountain: 1,
-            snow: 1
-        };
-
-        while (queue.length > 0 && visited.size < maxSize) {
-            const [x, y] = queue.shift();
-            const key = `${x},${y}`;
-
-            if (visited.has(key)) continue;
-
-            const currentTile = this.getBiomeAt(x, y);
-            if (!currentTile || currentTile.biome === 'ocean') continue;
-
-            visited.add(key);
-
-            // Count biome types
-            const biome = currentTile.biome;
-            biomeCount[biome] = (biomeCount[biome] || 0) + 1;
-
-            // Add adjacent tiles to queue
-            const directions = [[0, 1], [0, -1], [1, 0], [-1, 0]];
-            for (const [dx, dy] of directions) {
-                const newKey = `${x + dx},${y + dy}`;
-                if (!visited.has(newKey)) {
-                    queue.push([x + dx, y + dy]);
-                }
-            }
-        }
-
-        // Calculate diversity (number of unique biomes)
-        const diversity = Object.keys(biomeCount).length;
-
-        // Calculate richness (weighted by biome value)
-        let richness = 0;
-        for (const [biome, count] of Object.entries(biomeCount)) {
-            richness += (biomeValue[biome] || 1) * count;
-        }
-        richness = richness / visited.size; // Average richness per tile
-
-        return {
-            size: visited.size,
-            biomes: biomeCount,
-            diversity: diversity,
-            richness: richness
-        };
-    }
-
-    isWalkable(x, y, onShip = false) {
-        const tile = this.getBiomeAt(x, y);
-        if (!tile) return false;
-
-        const biomeInfo = this.getBiomeInfo(tile.biome);
-        if (onShip) {
-            return biomeInfo.shipWalkable;
-        } else {
-            return biomeInfo.walkable;
-        }
-    }
-
-    clearVisibility() {
-        // Mark all tiles as not currently visible (but keep explored state)
-        for (const [key, tile] of this.map.entries()) {
-            tile.visible = false;
-        }
-    }
-
-    setVisibility(x, y, visible) {
-        const tile = this.generateChunkAt(x, y);
-        if (tile) {
-            tile.visible = visible;
-            if (visible) {
-                tile.explored = true; // Mark as explored when seen
-            }
-        }
-    }
-}
-
-class TerminalPlayer {
-    constructor(mapGenerator) {
-        this.mapGenerator = mapGenerator;
-        this.x = 0;
-        this.y = 0;
-        this.mode = 'foot';
-        this.gold = 100; // Starting gold for trading
-        this.shipDurability = null; // Track player's ship durability
-        this.initialize();
-    }
-
-    initialize() {
-        this.x = 0;
-        this.y = 0;
-
-        for (let radius = 0; radius < 20; radius++) {
-            for (let angle = 0; angle < 360; angle += 45) {
-                const testX = Math.round(this.x + radius * Math.cos(angle * Math.PI / 180));
-                const testY = Math.round(this.y + radius * Math.sin(angle * Math.PI / 180));
-
-                if (this.mapGenerator.isWalkable(testX, testY, false)) {
-                    this.x = testX;
-                    this.y = testY;
-                    return;
-                }
-            }
-        }
-    }
-
-    getIcon() {
-        return this.mode === 'ship' ? '⛵' : '@';
-    }
-
-    canMoveTo(x, y) {
-        return this.mapGenerator.isWalkable(x, y, this.mode === 'ship');
-    }
-
-    move(dx, dy) {
-        const newX = this.x + dx;
-        const newY = this.y + dy;
-
-        if (this.canMoveTo(newX, newY)) {
-            this.x = newX;
-            this.y = newY;
-            return true;
-        }
-
-        return false;
-    }
-}
-
-class TerminalEntityManager {
-    constructor(mapGenerator, economyManager = null) {
-        this.mapGenerator = mapGenerator;
-        this.economyManager = economyManager;
-        this.entities = new Map();
-        this.entityTypes = {
-            ship: { char: 'S', color: '\x1b[33m' },
-            port: { char: 'P', color: '\x1b[31m' },
-            treasure: { char: '$', color: '\x1b[93m' }
-        };
-        this.seededRandom = mapGenerator.seededRandom;
-
-        // Chunk-based spawning system
-        this.CHUNK_SIZE = 100; // Each chunk is 100x100 tiles
-        this.generatedChunks = new Set(); // Track which chunks have spawned entities
-        this.PORT_DENSITY = 0.15; // ~15% chance per suitable coastal tile in chunk
-    }
-
-    getChunkKey(x, y) {
-        const chunkX = Math.floor(x / this.CHUNK_SIZE);
-        const chunkY = Math.floor(y / this.CHUNK_SIZE);
-        return `${chunkX},${chunkY}`;
-    }
-
-    getChunkBounds(chunkX, chunkY) {
-        return {
-            minX: chunkX * this.CHUNK_SIZE,
-            maxX: (chunkX + 1) * this.CHUNK_SIZE,
-            minY: chunkY * this.CHUNK_SIZE,
-            maxY: (chunkY + 1) * this.CHUNK_SIZE
-        };
-    }
-
-    // Generate ports in a specific chunk (deterministic based on chunk coordinates)
-    generatePortsInChunk(chunkX, chunkY) {
-        const chunkKey = `${chunkX},${chunkY}`;
-
-        // Skip if already generated
-        if (this.generatedChunks.has(chunkKey)) {
-            return 0;
-        }
-
-        this.generatedChunks.add(chunkKey);
-
-        const bounds = this.getChunkBounds(chunkX, chunkY);
-        let portsSpawned = 0;
-
-        // Create deterministic random seed from chunk coordinates
-        const chunkSeed = (chunkX * 73856093) ^ (chunkY * 19349663);
-        const chunkRandom = () => {
-            const x = Math.sin(chunkSeed + portsSpawned * 12345) * 10000;
-            return x - Math.floor(x);
-        };
-
-        // Helper function to check if a position is coastal
-        const isCoastal = (x, y) => {
-            const tile = this.mapGenerator.getBiomeAt(x, y);
-            if (!tile || !this.mapGenerator.isWalkable(x, y, false) ||
-                tile.biome === 'ocean' || tile.biome === 'mountain') {
-                return false;
-            }
-
-            // Check if adjacent to ocean
-            const directions = [
-                [0, 1], [0, -1], [1, 0], [-1, 0],
-                [1, 1], [1, -1], [-1, 1], [-1, -1]
-            ];
-
-            for (const [dx, dy] of directions) {
-                const adjacentTile = this.mapGenerator.getBiomeAt(x + dx, y + dy);
-                if (adjacentTile && adjacentTile.biome === 'ocean') {
-                    return true;
-                }
-            }
-            return false;
-        };
-
-        // Scan chunk in a grid pattern for coastal locations
-        const gridSize = 10; // Check every 10 tiles
-        const coastalCandidates = [];
-
-        for (let x = bounds.minX; x < bounds.maxX; x += gridSize) {
-            for (let y = bounds.minY; y < bounds.maxY; y += gridSize) {
-                if (isCoastal(x, y) && !this.isPositionOccupied(x, y)) {
-                    coastalCandidates.push({ x, y });
-                }
-            }
-        }
-
-        // Spawn ports from candidates using density
-        for (const candidate of coastalCandidates) {
-            if (chunkRandom() < this.PORT_DENSITY) {
-                const port = {
-                    type: 'port',
-                    x: candidate.x,
-                    y: candidate.y,
-                    char: 'P',
-                    color: '\x1b[31m'
-                };
-
-                // Initialize economy data
-                if (this.economyManager) {
-                    port.economy = this.economyManager.determinePortEconomy(port, this.mapGenerator);
-                }
-
-                this.addEntity(port);
-                portsSpawned++;
-            }
-        }
-
-        return portsSpawned;
-    }
-
-    // Check and generate entities around player position
-    updateNearbyChunks(playerX, playerY) {
-        const playerChunkX = Math.floor(playerX / this.CHUNK_SIZE);
-        const playerChunkY = Math.floor(playerY / this.CHUNK_SIZE);
-
-        let totalSpawned = 0;
-
-        // Generate in 3x3 grid of chunks around player
-        for (let dx = -1; dx <= 1; dx++) {
-            for (let dy = -1; dy <= 1; dy++) {
-                const chunkX = playerChunkX + dx;
-                const chunkY = playerChunkY + dy;
-                totalSpawned += this.generatePortsInChunk(chunkX, chunkY);
-            }
-        }
-
-        return totalSpawned;
-    }
-
-addEntity(entity) {
-    const key = `${entity.x},${entity.y}`;
-    this.entities.set(key, entity);
-}
-
-removeEntity(x, y) {
-    const key = `${x},${y}`;
-    return this.entities.delete(key);
-}
-
-getEntityAt(x, y) {
-    const key = `${x},${y}`;
-    return this.entities.get(key);
-}
-
-isPositionOccupied(x, y) {
-    return this.entities.has(`${x},${y}`);
-}
-
-// Create durability data for a ship
-createShipDurability(maxHull = 100) {
-    return {
-        current: maxHull,
-        max: maxHull,
-        lastDamage: null
-    };
-}
-
-// Get ship condition based on durability
-getShipCondition(ship) {
-    if (!ship.durability) return 'unknown';
-    const percent = ship.durability.current / ship.durability.max;
-    if (percent >= 0.9) return 'excellent';
-    if (percent >= 0.6) return 'good';
-    if (percent >= 0.3) return 'damaged';
-    if (percent > 0) return 'critical';
-    return 'destroyed';
-}
-
-// Get ship icon based on condition
-getShipIcon(ship) {
-    const condition = this.getShipCondition(ship);
-    const icons = {
-        excellent: 'S',
-        good: 'S',
-        damaged: 's',
-        critical: 's',
-        destroyed: 'x'
-    };
-    return icons[condition] || 'S';
-}
-
-// Get ship color based on condition (terminal ANSI colors)
-getShipColor(ship) {
-    const condition = this.getShipCondition(ship);
-    const colors = {
-        excellent: '\x1b[33m',  // Yellow
-        good: '\x1b[33m',       // Yellow
-        damaged: '\x1b[93m',    // Bright yellow
-        critical: '\x1b[91m',   // Bright red
-        destroyed: '\x1b[90m'   // Gray
-    };
-    return colors[condition] || '\x1b[33m';
-}
-
-spawnPlayerStartingShip(playerX, playerY) {
-    console.log('Spawning starting ship near player...');
-
-    // Look for nearby water within expanding radius
-    for (let radius = 2; radius <= 10; radius++) {
-        for (let angle = 0; angle < 360; angle += 45) {
-            const testX = Math.round(playerX + radius * Math.cos(angle * Math.PI / 180));
-            const testY = Math.round(playerY + radius * Math.sin(angle * Math.PI / 180));
-
-            const tile = this.mapGenerator.getBiomeAt(testX, testY);
-            if (tile && tile.biome === 'ocean' && !this.isPositionOccupied(testX, testY)) {
-                // Check if it has enough water neighbors to be navigable
-                let waterNeighbors = 0;
-                for (let dx = -1; dx <= 1; dx++) {
-                    for (let dy = -1; dy <= 1; dy++) {
-                        if (dx === 0 && dy === 0) continue;
-                        const neighbor = this.mapGenerator.getBiomeAt(testX + dx, testY + dy);
-                        if (neighbor && neighbor.biome === 'ocean') {
-                            waterNeighbors++;
-                        }
-                    }
-                }
-
-                if (waterNeighbors >= 3) {
-                    const startingShip = {
-                        type: 'ship',
-                        x: testX,
-                        y: testY,
-                        char: 'S',
-                        color: '\x1b[33m',
-                        isStartingShip: true,
-                        durability: this.createShipDurability(100)
-                    };
-
-                    this.addEntity(startingShip);
-                    console.log(`Starting ship spawned at (${testX}, ${testY})`);
-                    return true;
-                }
-            }
-        }
-    }
-
-    console.log('Could not find suitable location for starting ship');
-    return false;
-}
-
-spawnPorts(centerX, centerY, count = 5) {
-    console.log('Spawning ports...');
-    const portsSpawned = [];
-
-    // Helper function to check if a position is coastal (land adjacent to ocean)
-    const isCoastal = (x, y) => {
-        const tile = this.mapGenerator.getBiomeAt(x, y);
-        if (!tile || !this.mapGenerator.isWalkable(x, y, false) ||
-            tile.biome === 'ocean' || tile.biome === 'mountain') {
-            return false;
-        }
-
-        // Check if adjacent to ocean
-        const directions = [
-            [0, 1], [0, -1], [1, 0], [-1, 0],
-            [1, 1], [1, -1], [-1, 1], [-1, -1]
-        ];
-
-        for (const [dx, dy] of directions) {
-            const adjacentTile = this.mapGenerator.getBiomeAt(x + dx, y + dy);
-            if (adjacentTile && adjacentTile.biome === 'ocean') {
-                return true;
-            }
-        }
-        return false;
-    };
-
-    // Start closer to player and search in smaller increments
-    for (let radius = 3; radius < 50 && portsSpawned.length < count; radius += 2) {
-        for (let angle = 0; angle < 360 && portsSpawned.length < count; angle += 30) {
-            const testX = Math.round(centerX + radius * Math.cos(angle * Math.PI / 180));
-            const testY = Math.round(centerY + radius * Math.sin(angle * Math.PI / 180));
-
-            // Check if position is coastal and not occupied
-            if (isCoastal(testX, testY) && !this.isPositionOccupied(testX, testY)) {
-                const port = {
-                    type: 'port',
-                    x: testX,
-                    y: testY,
-                    char: 'P',
-                    color: '\x1b[31m'
-                };
-
-                // Initialize economy data if economy manager is available
-                if (this.economyManager) {
-                    port.economy = this.economyManager.determinePortEconomy(port, this.mapGenerator);
-                }
-
-                this.addEntity(port);
-                portsSpawned.push(port);
-
-                // Calculate distance for better logging
-                const distance = Math.round(Math.sqrt((testX - centerX) ** 2 + (testY - centerY) ** 2));
-                const tile = this.mapGenerator.getBiomeAt(testX, testY);
-                console.log(`Coastal port spawned at (${testX}, ${testY}) on ${tile.biome} - ${distance} tiles away`);
-            }
-        }
-    }
-
-    console.log(`Spawned ${portsSpawned.length} coastal ports`);
-    return portsSpawned.length;
-}
-
-getAllEntities() {
-    return Array.from(this.entities.values());
-}
-}
+const FoodSystem = require('./food-system');
+const ShipProvisions = require('./ship-provisions');
+const NameGenerator = require('./nameGenerator');
+const SeededRandom = require('./seeded-random');
+const TerminalDisplayAdapter = require('./terminal-display-adapter');
+const MapGenerator = require('./map');
+const Player = require('./player');
+const EntityManager = require('./entities');
+
+// PHASE 2-4: Using shared modules - TerminalMapGenerator, TerminalPlayer, and TerminalEntityManager removed
 
 class TerminalGame {
     constructor(seed = null) {
         this.seed = seed;
-        this.mapGenerator = new TerminalMapGenerator(60, 20, seed);
+
+        // Initialize display adapter for terminal colors
+        this.displayAdapter = new TerminalDisplayAdapter();
+
+        // Use shared MapGenerator
+        this.mapGenerator = new MapGenerator(60, 20, seed);
+
+        // Convert biome colors for terminal display
+        this.mapGenerator.biomes = this.displayAdapter.convertBiomes(this.mapGenerator.biomes);
 
         // Initialize economy system
         this.economyManager = new EconomyManager(this.mapGenerator.seededRandom);
         this.weatherManager = new WeatherManager(this.mapGenerator.seededRandom);
         this.weatherManager.initializeNoise();
-        this.entityManager = new TerminalEntityManager(this.mapGenerator, this.economyManager);
+
+        // Use shared EntityManager
+        this.entityManager = new EntityManager(this.mapGenerator, this.economyManager);
+
+        // Convert entity type colors for terminal display
+        for (const [key, entityType] of Object.entries(this.entityManager.entityTypes)) {
+            this.entityManager.entityTypes[key] = this.displayAdapter.convertEntityType(entityType);
+        }
 
         // Initialize fog of war system
         this.fogOfWar = new FogOfWar(this.mapGenerator);
@@ -833,12 +56,22 @@ class TerminalGame {
         this.showInventory = false;
         this.showTrading = false;
         this.currentTradingPort = null;
+        this.showPortMenu = false; // Phase 1: MVP Loop
+        this.showMapViewer = false; // Phase 3: Map viewer
+        this.currentPort = null; // Phase 1: MVP Loop
         this.criticalWarningShown = false;
         this.lastWeatherWarning = null;
+        this.criticalHullWarningShown = false; // Phase 2: Hull warnings
+        this.moderateHullWarningShown = false; // Phase 2: Hull warnings
+        this.lastDangerLevel = 'unknown'; // Phase 2: Track danger zone changes
 
         // Initialize resource system
         this.resourceManager = null;
         this.playerInventory = null;
+
+        // Initialize food and rest systems
+        this.foodSystem = new FoodSystem();
+        this.shipProvisionsSystem = new ShipProvisions();
 
         this.setupReadline();
     }
@@ -854,22 +87,31 @@ class TerminalGame {
             process.stdin.setRawMode(true);
         }
 
-        // Handle line input for trading
+        // Handle line input for trading and port menu (Phase 1: MVP Loop)
         this.rl.on('line', (input) => {
-            if (this.showTrading && input.trim().length > 0) {
+            if (this.showPortMenu && input.trim().length > 0) {
+                this.handlePortMenuCommand(input);
+                this.render();
+            } else if (this.showTrading && input.trim().length > 0) {
                 this.handleTradingCommand(input);
                 this.render();
             }
         });
 
         process.stdin.on('keypress', (str, key) => {
-            // Don't handle key presses if we're in trading mode and typing
-            if (!this.showTrading) {
+            // Don't handle key presses if we're in menu mode and typing (Phase 1: MVP Loop)
+            if (!this.showTrading && !this.showPortMenu && !this.showMapViewer) {
                 this.handleKeyPress(key);
             } else {
-                // Only handle 't' to close trading in trading mode
-                if (key && key.name === 't') {
+                // Handle toggle keys to close menus
+                if (key && key.name === 't' && this.showTrading) {
                     this.openTrading(); // Toggle off
+                    this.render();
+                } else if (key && key.name === 'p' && this.showPortMenu) {
+                    this.openPortMenu(); // Toggle off
+                    this.render();
+                } else if (key && key.name === 'm' && this.showMapViewer) {
+                    this.viewMaps(); // Toggle off
                     this.render();
                 }
             }
@@ -881,7 +123,7 @@ class TerminalGame {
         console.log('Initializing Pirate Sea Terminal Edition...');
 
         this.mapGenerator.generateMap();
-        this.player = new TerminalPlayer(this.mapGenerator);
+        this.player = new Player(this.mapGenerator);
 
         // Initialize resource system
         this.resourceManager = new ResourceManager(this.mapGenerator, this.mapGenerator.seededRandom);
@@ -890,12 +132,8 @@ class TerminalGame {
         // Link inventory to player for economy system compatibility
         this.player.inventory = this.playerInventory;
 
-        // Spawn entities
-        this.entityManager.spawnPlayerStartingShip(this.player.x, this.player.y);
-
-        // Generate ports in nearby chunks (dynamic system)
-        const spawned = this.entityManager.updateNearbyChunks(this.player.x, this.player.y);
-        console.log(`Generated ${spawned} ports in nearby chunks`);
+        // Spawn all entities using island-aware system
+        this.entityManager.spawnEntities(this.player.x, this.player.y);
 
         // Generate initial weather
         this.weatherManager.generateWeather(this.player.x, this.player.y);
@@ -903,11 +141,17 @@ class TerminalGame {
         // Initialize fog of war visibility
         this.fogOfWar.updateVisibility(this.player.x, this.player.y);
 
+        // Give player starting food for testing
+        this.player.addFood('fish', 3);
+        this.player.addFood('berries', 2);
+        this.player.addFood('hardtack', 5);
+
         this.running = true;
         this.addMessage('Welcome to Pirate Sea! Use WASD to move, B to board/disembark, Q to quit.');
-        this.addMessage('Press G to gather resources, I to view inventory, T to trade, R to repair at ports.');
-        this.addMessage('A ship has been placed nearby for you to use!');
-        this.addMessage(`Starting gold: ${this.player.gold}g | World seed: ${this.mapGenerator.seed}`);
+        this.addMessage('Press G to gather resources, I to view cargo, P for port services.');
+        this.addMessage('Press T to trade resources, C to cook, E to eat, X to examine.');
+        this.addMessage('Your starting dinghy has been placed nearby - explore and find treasure!');
+        this.addMessage(`Starting gold: ${this.player.gold}g | Ship: ${this.player.currentShip} | Cargo: 0/${this.player.maxCargoSpace}`);
         this.render();
     }
 
@@ -942,18 +186,45 @@ class TerminalGame {
             case 't':
                 this.openTrading();
                 break;
+            case 'p':
+                this.openPortMenu();
+                break;
             case 'r':
                 this.repairShip();
+                break;
+            case 'c':
+                this.cookFood();
+                break;
+            case 'e':
+                this.eatFood();
+                break;
+            case 'x':
+                this.examineTile();
+                break;
+            case 'm':
+                this.viewMaps();
+                break;
+            case 'h':
+                this.digForTreasure();
                 break;
         }
 
         // Update game state
         this.turnCount++;
 
-        // Check for new chunks and generate ports
-        const newPorts = this.entityManager.updateNearbyChunks(this.player.x, this.player.y);
-        if (newPorts > 0) {
-            this.addMessage(`Discovered ${newPorts} new port${newPorts > 1 ? 's' : ''} nearby!`);
+        // Check for entity interactions at current position (Phase 1: MVP Loop)
+        // This handles automatic treasure collection and port visits
+        const entityInteraction = this.entityManager.checkPlayerPosition(this.player);
+        if (entityInteraction && entityInteraction.message) {
+            this.addMessage(entityInteraction.message);
+        }
+
+        // Check if we need to spawn entities in new region (dynamic exploration)
+        if (this.entityManager.shouldSpawnForPosition(this.player.x, this.player.y)) {
+            const newEntities = this.entityManager.spawnEntitiesInRegion(this.player.x, this.player.y);
+            if (newEntities > 0) {
+                this.addMessage(`Discovered new lands! Found ${newEntities} new locations.`);
+            }
         }
 
         // Update time of day (advances by 6 minutes per turn)
@@ -962,9 +233,11 @@ class TerminalGame {
         // Update fog of war based on player position (takes weather & time into account)
         this.fogOfWar.updateVisibility(this.player.x, this.player.y);
 
-        this.weatherManager.updateWeather(this.player.x, this.player.y);
+        // Phase 2: Pass player for distance-based weather spawning
+        this.weatherManager.updateWeather(this.player.x, this.player.y, this.player);
         this.applyWeatherEffects();
         this.checkWeatherWarnings();
+        this.checkDangerZone(); // Phase 2: Danger zone warnings
 
         this.render();
     }
@@ -1059,9 +332,9 @@ class TerminalGame {
     toggleInventory() {
         this.showInventory = !this.showInventory;
         if (this.showInventory) {
-            this.addMessage('Inventory opened');
+            this.addMessage('Cargo hold opened');
         } else {
-            this.addMessage('Inventory closed');
+            this.addMessage('Cargo hold closed');
         }
     }
 
@@ -1083,12 +356,21 @@ class TerminalGame {
         if (this.showTrading) {
             this.currentTradingPort = port;
             this.addMessage(`Trading at ${port.economy.tier} port - Gold: ${this.player.gold}g`);
+
+            // Clear readline's input buffer to prevent stray keypresses
+            // This prevents previously pressed keys from appearing in the trade input
+            if (this.rl && this.rl.line) {
+                this.rl.line = '';
+                this.rl.cursor = 0;
+                this.rl._refreshLine();
+            }
         } else {
             this.currentTradingPort = null;
             this.addMessage('Closed trading');
         }
     }
 
+    // Phase 3: Ship Repair (updated for Phase 2 hull system)
     repairShip() {
         // Check if player is at a port
         const port = this.entityManager.getEntityAt(this.player.x, this.player.y);
@@ -1098,39 +380,190 @@ class TerminalGame {
             return;
         }
 
-        if (!port.economy) {
-            this.addMessage('This port has no shipyard!');
+        // Check if player has a ship (using Phase 2 hull system)
+        if (this.player.mode !== 'ship' || !this.player.currentShip) {
+            this.addMessage('You don\'t have a ship to repair! (Board a ship first)');
             return;
         }
 
-        // Check if player has a ship
-        if (!this.player.shipDurability) {
-            this.addMessage('You don\'t have a ship to repair!');
+        // Calculate hull damage
+        const maxHull = this.player.maxShipHull;
+        const currentHull = this.player.shipHull;
+        const damage = maxHull - currentHull;
+
+        if (damage === 0) {
+            this.addMessage(`Your ${this.player.currentShip} is already at full health! (${currentHull}/${maxHull} HP)`);
             return;
         }
 
-        // Create a temporary ship object for repair calculations
-        const tempShip = { durability: this.player.shipDurability };
+        // Calculate repair cost (2g per hull point)
+        const REPAIR_COST_PER_HP = 2;
+        const totalCost = damage * REPAIR_COST_PER_HP;
 
-        // Get repair info
-        const repairInfo = this.economyManager.getRepairInfo(tempShip, port);
-
-        if (!repairInfo.canRepair) {
-            this.addMessage('Your ship is already at full health!');
+        // Check if player has enough gold
+        if (this.player.gold < totalCost) {
+            this.addMessage(`Repair costs ${totalCost}g (${damage} HP @ ${REPAIR_COST_PER_HP}g/HP). You have ${this.player.gold}g.`);
+            this.addMessage(`Not enough gold! Need ${totalCost - this.player.gold}g more.`);
             return;
         }
 
         // Execute repair
-        const result = this.economyManager.executeRepairTransaction(
-            this.player,
-            tempShip,
-            port
-        );
+        this.player.shipHull = maxHull;
+        this.player.gold -= totalCost;
+
+        // Reset hull warnings
+        this.criticalHullWarningShown = false;
+        this.moderateHullWarningShown = false;
+
+        this.addMessage(`⚒️ Repaired ${damage} HP for ${totalCost}g!`);
+        this.addMessage(`${this.player.currentShip} hull: ${maxHull}/${maxHull} HP (Full health)`);
+        this.addMessage(`Gold remaining: ${this.player.gold}g`);
+    }
+
+    cookFood() {
+        // Determine cooking location based on current position
+        const port = this.entityManager.getEntityAt(this.player.x, this.player.y);
+        let location = 'campfire'; // Default to campfire
+
+        if (port && port.type === 'port') {
+            location = 'port';
+        } else if (this.player.mode === 'ship') {
+            location = 'ship';
+        }
+
+        // Get cookable items
+        const cookableItems = this.player.getCookableItems(this.foodSystem);
+
+        if (cookableItems.length === 0) {
+            this.addMessage('No cookable food in inventory! (Try catching raw fish)');
+            return;
+        }
+
+        // For now, cook the first cookable item (in future could add menu)
+        const itemToCook = cookableItems[0];
+        const result = this.player.cookFood(itemToCook.type, this.foodSystem, location);
 
         if (result.success) {
-            this.addMessage(`Repaired ${result.hpRepaired} HP for ${result.cost}g! Ship: ${result.newHp}/${result.maxHp} HP`);
+            this.addMessage(result.message);
         } else {
-            this.addMessage(`Repair failed: ${result.error} (Cost: ${repairInfo.totalCost}g)`);
+            this.addMessage(result.message);
+        }
+    }
+
+    eatFood() {
+        // Check if player has any food
+        const foodInventory = this.player.getFoodInventory();
+
+        if (foodInventory.length === 0) {
+            this.addMessage('No food in inventory! Press I to check inventory.');
+            return;
+        }
+
+        // For now, eat the first food item (in future could add menu)
+        const foodItem = foodInventory[0];
+        const result = this.player.eatFood(foodItem.type, this.foodSystem);
+
+        if (result.success) {
+            this.addMessage(result.message);
+        } else {
+            this.addMessage(result.message);
+        }
+    }
+
+    examineTile() {
+        // Get current tile information
+        const x = this.player.x;
+        const y = this.player.y;
+        const tile = this.mapGenerator.getBiomeAt(x, y);
+
+        if (!tile) {
+            this.addMessage(`No tile data at (${x}, ${y})`);
+            return;
+        }
+
+        // Build detailed tile info message
+        let info = `=== Tile at (${x}, ${y}) ===`;
+
+        // Biome information
+        info += ` | Biome: ${tile.biome}`;
+        info += ` | Walkable: ${tile.walkable ? 'Yes' : 'No'}`;
+        info += ` | Ship: ${tile.shipWalkable ? 'Yes' : 'No'}`;
+
+        // Elevation and terrain details
+        if (tile.elevation !== undefined) {
+            const heightMeters = this.mapGenerator.elevationToMeters(tile.elevation);
+            const heightTier = this.mapGenerator.getHeightTier(tile.elevation);
+            info += ` | Elevation: ${tile.elevation.toFixed(2)} (${heightMeters}m, ${heightTier})`;
+        }
+        if (tile.moisture !== undefined) {
+            info += ` | Moisture: ${tile.moisture.toFixed(2)}`;
+        }
+        if (tile.temperature !== undefined) {
+            info += ` | Temp: ${tile.temperature.toFixed(2)}`;
+        }
+
+        this.addMessage(info);
+
+        // Check for entities at this location
+        const entity = this.entityManager.getEntityAt(x, y);
+        if (entity) {
+            let entityInfo = `Entity: ${entity.type}`;
+
+            if (entity.type === 'port' && entity.economy) {
+                const tier = entity.economy.tier || 'unknown';
+                const portName = entity.name || 'Unnamed Port';
+                entityInfo += ` | Name: ${portName} | Tier: ${tier}`;
+
+                // Show if port has been visited
+                if (entity.economy.lastVisit) {
+                    entityInfo += ' | Visited';
+                }
+            } else if (entity.type === 'ship') {
+                if (entity.durability) {
+                    entityInfo += ` | HP: ${entity.durability.current}/${entity.durability.max}`;
+                }
+                if (entity.isStartingShip) {
+                    entityInfo += ' | Starting Ship';
+                }
+            } else if (entity.type === 'treasure') {
+                entityInfo += ' | $$$';
+            }
+
+            this.addMessage(entityInfo);
+        }
+
+        // Check for resources
+        const locationState = this.resourceManager.getLocationState(x, y);
+        if (locationState) {
+            const isDepleted = this.resourceManager.isLocationDepleted(x, y);
+            if (!isDepleted && locationState.currentResource) {
+                const resourceInfo = this.resourceManager.getResourceInfo(locationState.currentResource);
+                if (resourceInfo) {
+                    this.addMessage(`Resource: ${locationState.currentResource} | Rarity: ${resourceInfo.rarity}`);
+                }
+            } else if (isDepleted) {
+                this.addMessage(`Resource: Depleted (regenerating)`);
+            }
+        } else {
+            // Show what resources are available in this biome
+            const biomeResources = this.resourceManager.getBiomeResources(tile.biome);
+            if (biomeResources && biomeResources.length > 0) {
+                const resourceNames = biomeResources.map(r => r.type).join(', ');
+                this.addMessage(`Available resources in ${tile.biome}: ${resourceNames}`);
+            }
+        }
+
+        // Check weather at location
+        const weather = this.weatherManager.getWeatherAt(x, y);
+        if (weather) {
+            const weatherType = weather > 0.7 ? 'Stormy' : weather > 0.4 ? 'Cloudy' : 'Clear';
+            this.addMessage(`Weather: ${weatherType} (${weather.toFixed(2)})`);
+        }
+
+        // Fog of war status
+        const fogStatus = this.fogOfWar.getTileVisibilityState(x, y);
+        if (fogStatus) {
+            this.addMessage(`Visibility: ${fogStatus}`);
         }
     }
 
@@ -1211,23 +644,163 @@ class TerminalGame {
     }
 
     applyWeatherEffects() {
-        // Only damage ships, not players on foot
-        if (this.player.mode !== 'ship' || !this.player.shipDurability) {
+        // Phase 2: Storm damage using new hull system
+        if (this.player.mode !== 'ship') {
             return;
         }
 
-        // Calculate weather damage at player position
-        const damage = this.weatherManager.calculateWeatherDamage(this.player.x, this.player.y);
+        // Get weather at current position
+        const weather = this.weatherManager.getWeatherAt(this.player.x, this.player.y);
+        if (!weather || weather.type === 'clear') {
+            return;
+        }
+
+        // Get weather type configuration
+        const weatherConfig = this.weatherManager.WEATHER_TYPES[weather.type];
+        if (!weatherConfig || weatherConfig.damage === 0) {
+            return;
+        }
+
+        // Apply storm damage using Phase 1 ship hull system
+        const damage = this.player.applyStormDamage(weather.type, weatherConfig.damage);
 
         if (damage > 0) {
-            this.damageShip(damage);
+            const shipStats = this.player.getShipStats();
+            const hullPercent = shipStats.hullPercent;
 
-            // Add weather-specific message
-            const weatherName = this.weatherManager.getWeatherName(this.player.x, this.player.y);
-            if (damage >= 10) {
-                this.addMessage(`🌪️ The ${weatherName} batters your ship!`);
+            // Weather-specific messages
+            if (weather.type === 'hurricane') {
+                this.addMessage(`🌀 HURRICANE batters your ship! -${damage} HP (${shipStats.hull}/${shipStats.maxHull})`);
+            } else if (weather.type === 'storm') {
+                this.addMessage(`⛈️ STORM damages ship! -${damage} HP (${shipStats.hull}/${shipStats.maxHull})`);
+            } else if (weather.type === 'rain') {
+                this.addMessage(`🌧️ Heavy rain damages ship -${damage} HP (${shipStats.hull}/${shipStats.maxHull})`);
+            }
+
+            // Hull damage warnings (Phase 2)
+            if (hullPercent <= 10 && hullPercent > 0) {
+                this.addMessage(`☠️ HULL FAILING! You are about to sink!`);
+            } else if (hullPercent <= 25 && !this.criticalHullWarningShown) {
+                this.addMessage(`🚨 CRITICAL DAMAGE! Return to port immediately!`);
+                this.criticalHullWarningShown = true;
+            } else if (hullPercent <= 50 && !this.moderateHullWarningShown) {
+                this.addMessage(`⚠️ Hull damaged - repair at port recommended`);
+                this.moderateHullWarningShown = true;
+            }
+
+            // Reset warnings if hull is repaired
+            if (hullPercent > 25) {
+                this.criticalHullWarningShown = false;
+            }
+            if (hullPercent > 50) {
+                this.moderateHullWarningShown = false;
+            }
+
+            // Check for death
+            if (this.player.isShipDestroyed()) {
+                this.handleDeath('shipwreck');
             }
         }
+    }
+
+    // ===== PHASE 2: DEATH & RESPAWN SYSTEM =====
+
+    handleDeath(cause) {
+        // Phase 2: Full death/respawn with shipwreck recovery
+        const deathX = this.player.x;
+        const deathY = this.player.y;
+        const lostShip = this.player.currentShip;
+        const lostCargo = [...this.player.cargoHold]; // Copy cargo array
+        const goldSafe = this.player.gold;
+
+        // Create shipwreck entity at death location
+        if (lostCargo.length > 0) {
+            const shipwreck = {
+                type: 'shipwreck',
+                x: deathX,
+                y: deathY,
+                char: '⚓',
+                color: '#555555',
+                cargo: lostCargo,
+                shipType: lostShip,
+                deathCause: cause,
+                createdTurn: this.turn,
+                description: `Wreckage of a ${lostShip} (${lostCargo.length} items)`
+            };
+            this.entityManager.addEntity(shipwreck);
+            this.addMessage(`💀 YOUR SHIP HAS SUNK at (${deathX}, ${deathY})!`);
+            this.addMessage(`⚓ A shipwreck marks your grave with ${lostCargo.length} cargo items`);
+        } else {
+            this.addMessage(`💀 YOUR SHIP HAS SUNK at (${deathX}, ${deathY})!`);
+            this.addMessage('You had no cargo to lose');
+        }
+
+        // Calculate total lost value
+        const lostValue = lostCargo.reduce((sum, item) => sum + (item.value || 0), 0);
+        if (lostValue > 0) {
+            this.addMessage(`Lost cargo worth ~${lostValue}g`);
+        }
+
+        // Respawn at home port or spawn location
+        if (this.player.homePort) {
+            this.player.x = this.player.homePortX;
+            this.player.y = this.player.homePortY;
+            this.addMessage(`⚔️ You wash ashore at ${this.player.homePort.name || 'your home port'}`);
+        } else {
+            // No home port - respawn at starting location
+            const spawnLoc = this.findSafeSpawnLocation();
+            if (spawnLoc) {
+                this.player.x = spawnLoc.x;
+                this.player.y = spawnLoc.y;
+                this.addMessage('⚔️ You wash ashore on a strange beach');
+            }
+        }
+
+        // Reset to dinghy
+        const oldShip = this.player.currentShip;
+        this.player.currentShip = 'dinghy';
+        this.player.shipHull = this.player.maxShipHull; // Dinghy hull
+        this.player.mode = 'foot'; // Respawn on foot
+
+        // Clear cargo and food (lost at sea)
+        this.player.cargoHold = [];
+        this.player.food = Math.max(this.player.food, 10); // Start with minimum food
+
+        // Gold is safe (stored at port)
+        this.addMessage(`💰 Your gold is safe: ${goldSafe}g`);
+        this.addMessage(`🏴 You've been given a replacement dinghy`);
+
+        if (lostCargo.length > 0) {
+            this.addMessage(`🗺️ You can recover your cargo from the shipwreck at (${deathX}, ${deathY})`);
+            this.addMessage('Mark this location! The wreck may despawn eventually');
+        }
+
+        // Show death summary
+        const deathSummary = cause === 'shipwreck' ? 'Storm' : 'Starvation';
+        this.addMessage(`--- DEATH SUMMARY: ${deathSummary} ---`);
+        this.addMessage(`Lost: ${oldShip}, ${lostCargo.length} cargo items`);
+        this.addMessage(`Kept: ${goldSafe}g, spawn at home`);
+    }
+
+    // Find a safe spawn location (used for respawn without home port)
+    findSafeSpawnLocation() {
+        // Try to find walkable land near (0, 0)
+        for (let radius = 0; radius < 50; radius++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+                for (let dy = -radius; dy <= radius; dy++) {
+                    if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
+
+                    const x = dx;
+                    const y = dy;
+                    const tile = this.mapGenerator.getBiomeAt(x, y);
+
+                    if (tile && tile.walkable && tile.biome !== 'ocean' && tile.biome !== 'deep_ocean') {
+                        return { x, y };
+                    }
+                }
+            }
+        }
+        return { x: 0, y: 0 }; // Fallback
     }
 
     checkWeatherWarnings() {
@@ -1252,6 +825,31 @@ class TerminalGame {
             this.lastWeatherWarning = this.turnCount;
         } else if (nearbyWeather.length === 0) {
             this.lastWeatherWarning = null;
+        }
+    }
+
+    checkDangerZone() {
+        // Phase 2: Warn when entering new danger zones
+        if (this.player.mode !== 'ship') {
+            return;
+        }
+
+        const dangerInfo = this.player.getDangerLevel();
+
+        // Check if danger level changed
+        if (dangerInfo.level !== this.lastDangerLevel && dangerInfo.level !== 'unknown') {
+            const messages = {
+                safe: '🟢 Entering safe waters - storms unlikely',
+                moderate: '🟡 Weather worsening - storms possible',
+                dangerous: '🟠 DANGEROUS WATERS! Storms likely - consider returning to port!',
+                extreme: '🔴 EXTREME DANGER! Hurricane risk! Turn back now!'
+            };
+
+            if (messages[dangerInfo.level]) {
+                this.addMessage(messages[dangerInfo.level]);
+            }
+
+            this.lastDangerLevel = dangerInfo.level;
         }
     }
 
@@ -1393,6 +991,406 @@ class TerminalGame {
         }
     }
 
+    // ===== PHASE 1: MVP LOOP - PORT MENU SYSTEM =====
+
+    openPortMenu() {
+        // Check if player is at a port and on foot
+        if (this.player.mode !== 'foot') {
+            this.addMessage('You must disembark to visit port services!');
+            return;
+        }
+
+        const port = this.entityManager.getEntityAt(this.player.x, this.player.y);
+
+        if (!port || port.type !== 'port') {
+            this.addMessage('You must be at a port! (Stand on P)');
+            return;
+        }
+
+        this.showPortMenu = !this.showPortMenu;
+        if (this.showPortMenu) {
+            this.currentPort = port;
+            const portName = port.portName || 'Port';
+            const isHome = this.player.isAtHomePort();
+            const label = isHome ? `${portName} (HOME PORT)` : portName;
+            this.addMessage(`Opened port services at ${label}`);
+        } else {
+            this.currentPort = null;
+            this.addMessage('Closed port services');
+        }
+    }
+
+    renderPortMenu() {
+        if (!this.currentPort) return '';
+
+        const port = this.currentPort;
+        const portName = port.portName || 'Port';
+        const isHome = this.player.isAtHomePort();
+
+        let output = '\n';
+        output += '='.repeat(60) + '\n';
+        output += `  ${portName.toUpperCase()}`;
+        if (isHome) output += ' - HOME PORT';
+        output += '\n';
+        output += '='.repeat(60) + '\n';
+
+        const cargoSummary = this.player.getCargoSummary();
+        const shipStats = this.player.getShipStats();
+        const distance = isHome ? 0 : Math.floor(this.player.getDistanceToHome() || 0);
+
+        output += `Gold: ${this.player.gold}g | Ship: ${shipStats.type} | Cargo: ${cargoSummary.weight}/${cargoSummary.maxWeight}\n`;
+        output += `Hull: ${shipStats.hull}/${shipStats.maxHull} HP`;
+        if (!isHome) {
+            output += ` | Distance from home: ${distance} tiles`;
+        }
+        output += '\n\n';
+
+        output += 'PORT SERVICES:\n';
+        output += '-'.repeat(60) + '\n';
+        output += '1. MERCHANT - Sell Treasure\n';
+        output += '2. SHIPYARD - Buy Ships & Repair\n';
+        output += '3. MAPS - View Treasure Maps\n';
+        output += '4. Leave Port\n\n';
+
+        // Show cargo contents
+        if (cargoSummary.count > 0) {
+            output += 'CARGO HOLD:\n';
+            output += '-'.repeat(60) + '\n';
+
+            // Show treasures
+            const treasures = this.player.cargoHold.filter(item => item.type === 'treasure');
+            if (treasures.length > 0) {
+                output += 'TREASURE:\n';
+                let totalValue = 0;
+                treasures.forEach((treasure, i) => {
+                    output += `  ${treasure.name} (${treasure.rarity}) - ${treasure.value}g [${treasure.weight}]\n`;
+                    totalValue += treasure.value;
+                });
+                output += `  Total: ${totalValue}g\n`;
+            }
+
+            // Show treasure maps
+            const maps = this.player.cargoHold.filter(item => item.type === 'treasure_map');
+            if (maps.length > 0) {
+                output += `\nTREASURE MAPS: ${maps.length}\n`;
+                output += '  (View in Maps menu - option 3)\n';
+            }
+
+            output += '\n';
+        } else {
+            output += 'Cargo hold empty.\n\n';
+        }
+
+        output += 'Commands: 1=Merchant, 2=Shipyard, 3=Maps, 4=Leave, P=Close\n';
+        return output;
+    }
+
+    handlePortMenuCommand(input) {
+        const command = input.trim();
+
+        if (command === '1') {
+            this.openMerchant();
+        } else if (command === '2') {
+            this.openShipyard();
+        } else if (command === '3') {
+            this.viewMaps();
+        } else if (command === '4' || command.toLowerCase() === 'leave') {
+            this.showPortMenu = false;
+            this.currentPort = null;
+            this.addMessage('Left port services');
+        } else {
+            this.addMessage('Invalid command. Use 1, 2, 3, or 4');
+        }
+    }
+
+    openMerchant() {
+        const treasures = this.player.cargoHold.filter(item => item.type === 'treasure');
+
+        if (treasures.length === 0) {
+            this.addMessage('No treasure to sell!');
+            return;
+        }
+
+        // Sell all treasure
+        const result = this.entityManager.sellTreasure(this.player, 'all');
+        this.addMessage(result.message);
+    }
+
+    openShipyard() {
+        if (!this.entityManager.shipSystem) {
+            this.addMessage('Shipyard not available!');
+            return;
+        }
+
+        const availableShips = this.entityManager.shipSystem.getAvailableShips(this.player.gold);
+        const damage = this.player.maxShipHull - this.player.shipHull;
+
+        let output = '\n';
+        output += '='.repeat(60) + '\n';
+        output += '  SHIPYARD\n';
+        output += '='.repeat(60) + '\n';
+        output += `Current Ship: ${this.player.currentShip} | Hull: ${this.player.shipHull}/${this.player.maxShipHull} HP\n`;
+        output += `Your Gold: ${this.player.gold}g\n\n`;
+
+        // Repair option
+        if (damage > 0) {
+            const repairCost = damage * 2;
+            output += `REPAIR: Restore ${damage} HP for ${repairCost}g (R to repair)\n\n`;
+        } else {
+            output += 'Ship at full hull.\n\n';
+        }
+
+        // Available ships
+        output += 'AVAILABLE SHIPS:\n';
+        output += '-'.repeat(60) + '\n';
+        availableShips.forEach((ship, i) => {
+            const canAfford = ship.canAfford ? '✓' : '✗';
+            output += `${i + 1}. ${ship.name} - ${ship.cost}g ${canAfford}\n`;
+            output += `   Cargo: ${ship.maxCargo} | Hull: ${ship.maxHull} | Speed: ${ship.speed}x\n`;
+            output += `   ${ship.description}\n`;
+        });
+
+        output += '\nCommands: 1-5=Buy ship, R=Repair, ESC=Back\n';
+        console.log(output);
+
+        // Get input
+        this.rl.question('> ', (answer) => {
+            this.handleShipyardCommand(answer.trim());
+            this.render();
+        });
+    }
+
+    handleShipyardCommand(input) {
+        if (input.toLowerCase() === 'r') {
+            const result = this.entityManager.repairShip(this.player, 2);
+            this.addMessage(result.message);
+            return;
+        }
+
+        const shipIndex = parseInt(input) - 1;
+        if (isNaN(shipIndex)) {
+            this.addMessage('Invalid command');
+            return;
+        }
+
+        const availableShips = this.entityManager.shipSystem.getAvailableShips(this.player.gold);
+        if (shipIndex < 0 || shipIndex >= availableShips.length) {
+            this.addMessage('Invalid ship number');
+            return;
+        }
+
+        const selectedShip = availableShips[shipIndex];
+        const result = this.entityManager.buyShip(this.player, selectedShip.key);
+        this.addMessage(result.message);
+    }
+
+    // Phase 3: Map Viewer
+    viewMaps() {
+        const maps = this.player.cargoHold.filter(item => item.type === 'treasure_map');
+
+        if (maps.length === 0) {
+            this.addMessage('You have no treasure maps!');
+            return;
+        }
+
+        // Toggle map viewer
+        this.showMapViewer = !this.showMapViewer;
+        if (this.showMapViewer) {
+            this.addMessage(`Viewing ${maps.length} treasure map(s)`);
+        } else {
+            this.addMessage('Closed map viewer');
+        }
+    }
+
+    renderMapViewer() {
+        if (!this.showMapViewer) return '';
+
+        const maps = this.player.cargoHold.filter(item => item.type === 'treasure_map');
+
+        if (maps.length === 0) {
+            this.showMapViewer = false;
+            return '';
+        }
+
+        let output = '\n';
+        output += '='.repeat(60) + '\n';
+        output += '  TREASURE MAPS\n';
+        output += '='.repeat(60) + '\n';
+        output += `Current Location: (${this.player.x}, ${this.player.y})\n\n`;
+
+        maps.forEach((map, i) => {
+            const dx = map.targetX - this.player.x;
+            const dy = map.targetY - this.player.y;
+            const distance = Math.floor(Math.sqrt(dx * dx + dy * dy));
+
+            // Calculate direction
+            let direction = '';
+            if (Math.abs(dx) > Math.abs(dy)) {
+                direction = dx > 0 ? 'East' : 'West';
+            } else {
+                direction = dy > 0 ? 'South' : 'North';
+            }
+
+            output += `MAP #${i + 1}: ${map.treasureRarity.toUpperCase()} TREASURE\n`;
+            output += `  Location: (${map.targetX}, ${map.targetY})\n`;
+            output += `  Direction: ${direction}\n`;
+            output += `  Distance: ${distance} tiles\n`;
+            output += `  ${map.description}\n\n`;
+        });
+
+        output += 'Commands: M=Close map viewer, H=Dig (when at location)\n';
+        return output;
+    }
+
+    // Phase 3: Digging for Treasure
+    digForTreasure() {
+        // Must be on foot to dig
+        if (this.player.mode !== 'foot') {
+            this.addMessage('You must be on land to dig! (Unboard your ship first)');
+            return;
+        }
+
+        // Check if on land
+        const tile = this.mapGenerator.getBiomeAt(this.player.x, this.player.y);
+        if (!tile || tile.biome === 'ocean' || tile.biome === 'deep_ocean') {
+            this.addMessage('You can\'t dig in water!');
+            return;
+        }
+
+        // Check for treasure maps
+        const maps = this.player.cargoHold.filter(item => item.type === 'treasure_map');
+
+        // Check if current position matches any map (allow 3 tile tolerance)
+        for (let i = 0; i < maps.length; i++) {
+            const map = maps[i];
+            const dx = Math.abs(map.targetX - this.player.x);
+            const dy = Math.abs(map.targetY - this.player.y);
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance <= 3) {
+                // Found the treasure (close enough!)
+                this.addMessage(`🗺️ This is the location from your map!`);
+                this.addMessage(`⛏️ Digging...`);
+
+                // Generate treasure based on rarity
+                let treasureItem;
+                if (this.entityManager.treasureSystem) {
+                    // Use treasure system with map's rarity
+                    const rarityValues = {
+                        'uncommon': 0.3,
+                        'rare': 0.6,
+                        'legendary': 0.9
+                    };
+                    treasureItem = this.entityManager.treasureSystem.generateTreasure({
+                        position: { x: this.player.x, y: this.player.y },
+                        rarityBoost: rarityValues[map.treasureRarity] || 0.5
+                    });
+                } else {
+                    // Fallback treasure by rarity
+                    const treasureValues = {
+                        'uncommon': { name: 'Jeweled Goblet', value: 150, weight: 2, rarity: 'uncommon' },
+                        'rare': { name: 'Ancient Crown', value: 350, weight: 3, rarity: 'rare' },
+                        'legendary': { name: 'Aztec Gold', value: 800, weight: 5, rarity: 'legendary' }
+                    };
+                    const template = treasureValues[map.treasureRarity] || treasureValues['uncommon'];
+                    treasureItem = {
+                        type: 'treasure',
+                        ...template
+                    };
+                }
+
+                // Try to add to cargo
+                const result = this.player.addToCargo(treasureItem);
+
+                if (result.success) {
+                    this.addMessage(`💎 Found buried treasure: ${treasureItem.name}! (${treasureItem.value}g)`);
+                    this.addMessage(`🗺️ The treasure map crumbles to dust...`);
+
+                    // Remove the map from cargo
+                    const mapIndex = this.player.cargoHold.indexOf(map);
+                    if (mapIndex !== -1) {
+                        this.player.cargoHold.splice(mapIndex, 1);
+                    }
+                } else {
+                    this.addMessage(`💎 Found ${treasureItem.name}! But cargo is full!`);
+                    this.addMessage(`The treasure remains buried. Clear cargo space and dig again.`);
+                }
+                return;
+            }
+        }
+
+        // No map for this location - try scavenging
+        this.addMessage(`⛏️ Digging around...`);
+
+        // 10% chance to find common treasure
+        const seededRandom = this.mapGenerator.seededRandom;
+        if (seededRandom.random() < 0.1) {
+            let treasureItem;
+            if (this.entityManager.treasureSystem) {
+                treasureItem = this.entityManager.treasureSystem.generateTreasure({
+                    position: { x: this.player.x, y: this.player.y },
+                    rarityBoost: -0.3 // Lower rarity for scavenging
+                });
+            } else {
+                treasureItem = {
+                    type: 'treasure',
+                    name: 'Gold Coins',
+                    value: 30,
+                    weight: 1,
+                    rarity: 'common'
+                };
+            }
+
+            const result = this.player.addToCargo(treasureItem);
+
+            if (result.success) {
+                this.addMessage(`✨ Lucky find! Discovered ${treasureItem.name}! (${treasureItem.value}g)`);
+            } else {
+                this.addMessage(`Found ${treasureItem.name} but cargo is full!`);
+            }
+        } else {
+            this.addMessage(`Found nothing but dirt and rocks.`);
+        }
+    }
+
+    renderCargoInventory() {
+        const cargoSummary = this.player.getCargoSummary();
+        const shipStats = this.player.getShipStats();
+
+        let output = '\n';
+        output += '='.repeat(60) + '\n';
+        output += '  CARGO HOLD\n';
+        output += '='.repeat(60) + '\n';
+        output += `Ship: ${shipStats.type} | Cargo: ${cargoSummary.weight}/${cargoSummary.maxWeight} units\n`;
+        output += `Total value: ${this.player.getCargoValue()}g\n\n`;
+
+        if (cargoSummary.count === 0) {
+            output += 'Cargo hold is empty.\n';
+        } else {
+            output += 'CARGO:\n';
+            output += '-'.repeat(60) + '\n';
+            this.player.cargoHold.forEach((item, i) => {
+                if (item.type === 'treasure') {
+                    const raritySymbol = {
+                        common: '○',
+                        uncommon: '◐',
+                        rare: '●',
+                        legendary: '★'
+                    }[item.rarity] || '○';
+                    output += `${i + 1}. ${raritySymbol} ${item.name} - ${item.value}g [weight: ${item.weight}]\n`;
+                    if (item.foundAt) {
+                        output += `   Found at (${item.foundAt.x}, ${item.foundAt.y})\n`;
+                    }
+                } else {
+                    output += `${i + 1}. ${item.name} (${item.type})\n`;
+                }
+            });
+        }
+
+        output += '\nPress I to close\n';
+        return output;
+    }
+
     render() {
         console.clear();
 
@@ -1436,11 +1434,22 @@ class TerminalGame {
                             let char, color;
                             if (entity.type === 'ship' && entity.durability) {
                                 char = this.entityManager.getShipIcon(entity);
-                                color = this.entityManager.getShipColor(entity);
+                                color = this.hexToAnsi(this.entityManager.getShipColor(entity));
+                            } else if (entity.char && entity.color) {
+                                // Entity has direct char/color properties (bottles, shipwrecks, etc.)
+                                char = entity.char;
+                                color = this.hexToAnsi(entity.color);
                             } else {
+                                // Look up in entityTypes
                                 const entityInfo = this.entityManager.entityTypes[entity.type];
-                                char = entityInfo.char;
-                                color = entityInfo.color;
+                                if (entityInfo) {
+                                    char = entityInfo.char;
+                                    color = this.hexToAnsi(entityInfo.color);
+                                } else {
+                                    // Fallback for unknown entity types
+                                    char = '?';
+                                    color = this.hexToAnsi('#ffffff');
+                                }
                             }
                             line += `${color}${char}\x1b[0m`;
                         } else if (hasWeather && isVisible) {
@@ -1456,9 +1465,11 @@ class TerminalGame {
                                     tileData.worldX,
                                     tileData.worldY,
                                     tileData.tile.biome,
-                                    this.resourceManager
+                                    this.resourceManager,
+                                    'terminal'
                                 );
-                                const finalColor = isExplored ? this.dimColor(glyphInfo.color) : glyphInfo.color;
+                                const ansiColor = this.hexToAnsi(glyphInfo.color);
+                                const finalColor = isExplored ? this.dimColor(ansiColor) : ansiColor;
                                 line += `${finalColor}${glyphInfo.char}\x1b[0m`;
                             }
                         } else {
@@ -1467,9 +1478,11 @@ class TerminalGame {
                                 tileData.worldX,
                                 tileData.worldY,
                                 tileData.tile.biome,
-                                this.resourceManager
+                                this.resourceManager,
+                                'terminal'
                             );
-                            const finalColor = isExplored ? this.dimColor(glyphInfo.color) : glyphInfo.color;
+                            const ansiColor = this.hexToAnsi(glyphInfo.color);
+                            const finalColor = isExplored ? this.dimColor(ansiColor) : ansiColor;
                             line += `${finalColor}${glyphInfo.char}\x1b[0m`;
                         }
                     }
@@ -1487,26 +1500,78 @@ class TerminalGame {
         const timePeriod = this.fogOfWar.getTimeOfDayPeriod();
         const viewRadius = this.fogOfWar.getViewRadius();
 
-        console.log(`\nPosition: (${this.player.x}, ${this.player.y}) | Mode: ${this.player.mode} | Gold: ${this.player.gold}g`);
-        console.log(`Time: ${timeStr} (${timePeriod}) | Visibility: ${viewRadius} tiles`);
+        // Get health and hunger info
+        const health = this.player.getHealth();
+        const hungerStatus = this.foodSystem.getHungerStatus(this.player.hunger);
 
-        // Show ship HP if player has a ship
-        if (this.player.shipDurability) {
-            const condition = this.entityManager.getShipCondition({ durability: this.player.shipDurability });
-            console.log(`Ship: ${this.player.shipDurability.current}/${this.player.shipDurability.max} HP (${condition})`);
+        // Phase 1: MVP Loop - Enhanced status display
+        const cargoSummary = this.player.getCargoSummary();
+        const shipStats = this.player.getShipStats();
+        const distanceToHome = this.player.getDistanceToHome();
+
+        // Phase 2: Danger level display
+        const dangerInfo = this.player.getDangerLevel();
+        const dangerIcons = {
+            safe: '🟢',
+            moderate: '🟡',
+            dangerous: '🟠',
+            extreme: '🔴',
+            unknown: '⚪'
+        };
+        const dangerIcon = dangerIcons[dangerInfo.level] || '⚪';
+
+        console.log(`\nPosition: (${this.player.x}, ${this.player.y}) | Mode: ${this.player.mode} | Gold: ${this.player.gold}g`);
+        console.log(`Health: ${health.current}/${health.max} HP | Hunger: ${Math.floor(this.player.hunger)}% (${hungerStatus.message})`);
+        console.log(`Ship: ${shipStats.type} | Hull: ${shipStats.hull}/${shipStats.maxHull} HP | Cargo: ${cargoSummary.weight}/${cargoSummary.maxWeight}`);
+
+        if (distanceToHome !== null) {
+            console.log(`Home: ${Math.floor(distanceToHome)} tiles ${dangerIcon} ${dangerInfo.level.toUpperCase()} | Time: ${timeStr} (${timePeriod})`);
+        } else {
+            console.log(`Time: ${timeStr} (${timePeriod}) | Visibility: ${viewRadius} tiles`);
         }
 
-        console.log('Controls: WASD=Move, B=Board/Disembark, G=Gather, I=Inventory, T=Trade, R=Repair, Q=Quit');
+        console.log('Controls: WASD=Move, B=Board/Disembark, I=Cargo, P=Port, M=Maps, H=Dig, G=Gather, T=Trade, C=Cook, E=Eat, X=Examine, Q=Quit');
+
+        // Phase 1: Display port menu if active
+        if (this.showPortMenu) {
+            console.log(this.renderPortMenu());
+            console.log('\nType your command and press Enter:');
+        }
+
+        // Phase 3: Display map viewer if active
+        if (this.showMapViewer && !this.showPortMenu) {
+            console.log(this.renderMapViewer());
+        }
 
         // Display trading if active
-        if (this.showTrading) {
+        if (this.showTrading && !this.showPortMenu) {
             console.log(this.renderTrading());
             console.log('\nType your command and press Enter:');
         }
 
-        // Display inventory if toggled
-        if (this.showInventory && !this.showTrading) {
-            console.log('\n' + this.playerInventory.getInventoryDisplayTerminal(this.resourceManager));
+        // Display cargo inventory if toggled (Phase 1: MVP Loop)
+        if (this.showInventory && !this.showTrading && !this.showPortMenu) {
+            console.log(this.renderCargoInventory());
+
+            // Also show resource inventory below cargo
+            console.log('\n--- Resources ---');
+            console.log(this.playerInventory.getInventoryDisplayTerminal(this.resourceManager));
+
+            // Display food inventory
+            const foodInventory = this.player.getFoodInventory();
+            if (foodInventory.length > 0) {
+                console.log('\n--- Food Inventory ---');
+                foodInventory.forEach(item => {
+                    const foodInfo = this.foodSystem.getFoodInfo(item.type);
+                    const spoiled = this.foodSystem.isSpoiled(item, this.player.gameTime);
+                    const status = spoiled ? ' [SPOILED]' : '';
+                    const cookable = this.foodSystem.canCook(item.type) ? ' (cookable)' : '';
+                    console.log(`  ${foodInfo.name} x${item.quantity}${status}${cookable} - ${foodInfo.restores}HP, ${foodInfo.hungerRestore}% hunger`);
+                });
+            } else {
+                console.log('\n--- Food Inventory ---');
+                console.log('  (no food)');
+            }
         }
 
         // Display recent messages
@@ -1519,15 +1584,13 @@ class TerminalGame {
     hexToAnsi(hexColor) {
         if (!hexColor) return '\x1b[37m'; // Default to white
 
-        // Simple hex to ANSI color mapping
-        const colorMap = {
-            '#b0b0b0': '\x1b[37m',   // Fog - white/light gray
-            '#6fa8dc': '\x1b[36m',   // Rain - cyan
-            '#3d5a80': '\x1b[34m',   // Storm - blue
-            '#1a1a2e': '\x1b[90m'    // Hurricane - dark gray
-        };
+        // If it's already an ANSI code, return it as-is
+        if (hexColor.startsWith('\x1b[')) {
+            return hexColor;
+        }
 
-        return colorMap[hexColor] || '\x1b[37m';
+        // Use displayAdapter's comprehensive color map
+        return this.displayAdapter.toAnsi(hexColor);
     }
 
     dimColor(ansiColor) {

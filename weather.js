@@ -52,6 +52,49 @@ class WeatherManager {
         // Number of active weather systems
         this.MAX_WEATHER_SYSTEMS = 5;
         this.MIN_WEATHER_SYSTEMS = 3;
+
+        // Phase 2: Distance-based weather spawning
+        this.DANGER_WEATHER_WEIGHTS = {
+            safe: {
+                fog: 0.8,
+                clear: 0.2,
+                rain: 0,
+                storm: 0,
+                hurricane: 0
+            },
+            moderate: {
+                fog: 0.4,
+                rain: 0.4,
+                storm: 0.2,
+                hurricane: 0
+            },
+            dangerous: {
+                fog: 0.1,
+                rain: 0.3,
+                storm: 0.5,
+                hurricane: 0.1
+            },
+            extreme: {
+                fog: 0,
+                rain: 0.1,
+                storm: 0.4,
+                hurricane: 0.5
+            },
+            unknown: { // Fallback for no home port
+                fog: 0.3,
+                rain: 0.4,
+                storm: 0.25,
+                hurricane: 0.05
+            }
+        };
+
+        this.DANGER_SPAWN_CHANCES = {
+            safe: 0,        // No storms in safe zone
+            moderate: 0.08, // 8% chance per turn
+            dangerous: 0.20, // 20% chance per turn
+            extreme: 0.40,   // 40% chance per turn
+            unknown: 0.05    // 5% default
+        };
     }
 
     /**
@@ -81,32 +124,17 @@ class WeatherManager {
     }
 
     /**
-     * Spawn a new weather system
+     * Spawn a new weather system (Phase 2: with danger-based type selection)
      */
-    spawnWeatherSystem(centerX = 0, centerY = 0) {
+    spawnWeatherSystem(centerX = 0, centerY = 0, dangerLevel = 'unknown') {
         // Random position within range of center
         const angle = this.seededRandom.random() * Math.PI * 2;
         const distance = 20 + this.seededRandom.random() * 40;
         const x = Math.round(centerX + Math.cos(angle) * distance);
         const y = Math.round(centerY + Math.sin(angle) * distance);
 
-        // Determine weather type based on probability
-        const roll = this.seededRandom.random();
-        let weatherType = 'clear';
-        let cumulativeProbability = 0;
-
-        // Skip 'clear' and assign actual weather
-        const weatherOptions = ['fog', 'rain', 'storm', 'hurricane'];
-        const totalProb = 0.40; // 40% for weather (100% - 60% clear)
-
-        for (const type of weatherOptions) {
-            const normalizedProb = this.WEATHER_TYPES[type].probability / totalProb;
-            cumulativeProbability += normalizedProb;
-            if (roll < cumulativeProbability) {
-                weatherType = type;
-                break;
-            }
-        }
+        // Phase 2: Select weather type based on danger level
+        const weatherType = this.selectWeatherTypeForDanger(dangerLevel);
 
         // Random movement direction and speed
         const moveAngle = this.seededRandom.random() * Math.PI * 2;
@@ -130,9 +158,28 @@ class WeatherManager {
     }
 
     /**
-     * Update weather systems (movement, aging, spawning/despawning)
+     * Phase 2: Select weather type based on danger level
      */
-    updateWeather(centerX = 0, centerY = 0) {
+    selectWeatherTypeForDanger(dangerLevel) {
+        const weights = this.DANGER_WEATHER_WEIGHTS[dangerLevel] || this.DANGER_WEATHER_WEIGHTS.unknown;
+
+        const roll = this.seededRandom.random();
+        let cumulative = 0;
+
+        for (const [type, weight] of Object.entries(weights)) {
+            cumulative += weight;
+            if (roll < cumulative) {
+                return type;
+            }
+        }
+
+        return 'fog'; // Fallback
+    }
+
+    /**
+     * Update weather systems (Phase 2: with danger-based spawning)
+     */
+    updateWeather(centerX = 0, centerY = 0, player = null) {
         // Move and age weather systems
         for (let i = this.weatherSystems.length - 1; i >= 0; i--) {
             const weather = this.weatherSystems[i];
@@ -148,15 +195,25 @@ class WeatherManager {
             }
         }
 
-        // Maintain minimum number of weather systems
-        while (this.weatherSystems.length < this.MIN_WEATHER_SYSTEMS) {
-            this.spawnWeatherSystem(centerX, centerY);
+        // Phase 2: Get danger level for spawn decisions
+        let dangerLevel = 'unknown';
+        let spawnChance = this.DANGER_SPAWN_CHANCES.unknown;
+
+        if (player && player.getDangerLevel) {
+            const dangerInfo = player.getDangerLevel();
+            dangerLevel = dangerInfo.level;
+            spawnChance = this.DANGER_SPAWN_CHANCES[dangerLevel];
         }
 
-        // Randomly spawn new weather (small chance)
+        // Maintain minimum number of weather systems (use danger-based type)
+        while (this.weatherSystems.length < this.MIN_WEATHER_SYSTEMS) {
+            this.spawnWeatherSystem(centerX, centerY, dangerLevel);
+        }
+
+        // Phase 2: Spawn new weather based on danger level
         if (this.weatherSystems.length < this.MAX_WEATHER_SYSTEMS &&
-            this.seededRandom.random() < 0.05) {
-            this.spawnWeatherSystem(centerX, centerY);
+            this.seededRandom.random() < spawnChance) {
+            this.spawnWeatherSystem(centerX, centerY, dangerLevel);
         }
     }
 
