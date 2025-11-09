@@ -1183,7 +1183,7 @@ class UIManager {
         this.addMessage(`Welcome to ${port.portName || 'Port'}!`);
         this.addMessage('[T] Trading');
         this.addMessage('[H] Hire Crew (20-80g)');
-        this.addMessage('[W] Pay Crew Wages');
+        this.addMessage('[Y] Pay Crew Wages');
         this.addMessage('[Q] View Available Quests');
         this.addMessage('[R] Repair Ship');
 
@@ -1202,7 +1202,7 @@ class UIManager {
                     document.removeEventListener('keydown', handler);
                     this.handleHireCrew(port);
                     break;
-                case 'w':
+                case 'y':
                     document.removeEventListener('keydown', handler);
                     this.handlePayWages();
                     break;

@@ -133,9 +133,9 @@ class PirateSeaGame {
             combatMessages.forEach(msg => this.uiManager.addMessage(msg));
         }
 
-        // Update active quests
+        // Update active quests (with weather awareness)
         if (this.questManager) {
-            const questMessages = this.questManager.updateQuests(this.player, this.entityManager);
+            const questMessages = this.questManager.updateQuests(this.player, this.entityManager, this.weatherManager);
             questMessages.forEach(msg => this.uiManager.addMessage(msg));
         }
 

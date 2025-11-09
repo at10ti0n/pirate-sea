@@ -116,7 +116,8 @@ class QuestManager {
         quest.destination = {
             x: targetX,
             y: targetY,
-            name: `Port ${Math.floor(this.seededRandom.random() * 1000)}`
+            name: `Port ${Math.floor(this.seededRandom.random() * 1000)}`,
+            needsGeneration: true // Flag that this location needs to be generated
         };
         quest.cargo = {
             name: this.getRandomCargo(),
@@ -125,6 +126,9 @@ class QuestManager {
         quest.timeLimit = Math.floor(distance / 2); // Time limit based on distance
         quest.description = `Deliver ${quest.cargo.name} to ${quest.destination.name} at (${targetX}, ${targetY})`;
         quest.detailedDesc = `The port master needs ${quest.cargo.name} delivered to ${quest.destination.name}. Distance: ${distance} tiles. Time limit: ${quest.timeLimit} turns.`;
+
+        // Weather consideration: increase time if player is in stormy area
+        quest.weatherAware = true;
 
         return quest;
     }
@@ -275,13 +279,29 @@ class QuestManager {
      * Update quest progress
      * @param {Object} player - Player object
      * @param {Object} entityManager - Entity manager
+     * @param {Object} weatherManager - Weather manager (optional)
      * @returns {Array} - Messages about quest updates
      */
-    updateQuests(player, entityManager) {
+    updateQuests(player, entityManager, weatherManager = null) {
         const messages = [];
 
         this.activeQuests.forEach(quest => {
             if (quest.status !== 'active') return;
+
+            // Weather-aware time limit adjustment
+            let turnIncrement = 1;
+            if (quest.weatherAware && weatherManager) {
+                const weather = weatherManager.getWeatherName(player.x, player.y);
+                if (weather === 'storm' || weather === 'hurricane') {
+                    turnIncrement = 0.5; // Storms slow progress, so time passes slower
+                    if (!quest.stormWarningShown) {
+                        messages.push(`⛈️ Storm delays your quest progress!`);
+                        quest.stormWarningShown = true;
+                    }
+                } else {
+                    quest.stormWarningShown = false;
+                }
+            }
 
             // Check time limit
             if (quest.timeLimit && quest.turnCount >= quest.timeLimit) {
@@ -290,7 +310,10 @@ class QuestManager {
                 return;
             }
 
-            quest.turnCount = (quest.turnCount || 0) + 1;
+            quest.turnCount = (quest.turnCount || 0) + turnIncrement;
+
+            // Trigger region generation when approaching quest targets
+            this.ensureQuestRegionGenerated(quest, player, entityManager);
 
             // Check quest completion based on type
             switch (quest.type) {
@@ -318,10 +341,122 @@ class QuestManager {
                         messages.push(`⛑️ Survivors rescued! Return them to port.`);
                     }
                     break;
+
+                case 'bounty':
+                    // Spawn bounty target when player is near
+                    if (this.checkBountyProgress(quest, player, entityManager)) {
+                        messages.push(`🎯 Bounty target spotted! Hunt them down!`);
+                    }
+                    break;
             }
         });
 
         return messages;
+    }
+
+    /**
+     * Ensure quest target region is generated when player approaches
+     */
+    ensureQuestRegionGenerated(quest, player, entityManager) {
+        let targetX, targetY;
+
+        // Get target coordinates based on quest type
+        if (quest.destination) {
+            targetX = quest.destination.x;
+            targetY = quest.destination.y;
+        } else if (quest.treasure) {
+            targetX = quest.treasure.x;
+            targetY = quest.treasure.y;
+        } else if (quest.target) {
+            targetX = quest.target.x;
+            targetY = quest.target.y;
+        } else if (quest.exploration) {
+            targetX = quest.exploration.x;
+            targetY = quest.exploration.y;
+        } else if (quest.rescue) {
+            targetX = quest.rescue.x;
+            targetY = quest.rescue.y;
+        } else {
+            return; // No target location for this quest type
+        }
+
+        // Check distance to target
+        const dx = player.x - targetX;
+        const dy = player.y - targetY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        // Trigger region generation when within 70 tiles of target
+        if (distance < 70 && entityManager.shouldSpawnForPosition) {
+            if (entityManager.shouldSpawnForPosition(targetX, targetY)) {
+                entityManager.spawnEntitiesInRegion(targetX, targetY);
+            }
+        }
+    }
+
+    /**
+     * Check bounty hunt progress and spawn target
+     */
+    checkBountyProgress(quest, player, entityManager) {
+        if (quest.spawned) return false;
+
+        const dx = player.x - quest.target.x;
+        const dy = player.y - quest.target.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        // Spawn bounty target when player is within search radius
+        if (distance <= quest.target.radius) {
+            // Find suitable ocean location within the area
+            let spawnX = quest.target.x;
+            let spawnY = quest.target.y;
+
+            // Try to find ocean tile near target
+            for (let attempts = 0; attempts < 20; attempts++) {
+                const angle = this.seededRandom.random() * Math.PI * 2;
+                const dist = this.seededRandom.random() * quest.target.radius;
+                const testX = Math.round(quest.target.x + Math.cos(angle) * dist);
+                const testY = Math.round(quest.target.y + Math.sin(angle) * dist);
+
+                const tile = entityManager.mapGenerator.getBiomeAt(testX, testY);
+                if (tile && tile.biome === 'ocean' && !entityManager.isPositionOccupied(testX, testY)) {
+                    spawnX = testX;
+                    spawnY = testY;
+                    break;
+                }
+            }
+
+            // Spawn the bounty target enemy ship
+            const enemyData = {
+                merchant: { hull: 40, damage: 5 },
+                pirate_sloop: { hull: 60, damage: 15 },
+                pirate_brig: { hull: 100, damage: 25 },
+                pirate_flagship: { hull: 150, damage: 40 }
+            }[quest.target.type] || { hull: 80, damage: 20 };
+
+            const bountyTarget = {
+                type: 'enemy_ship',
+                enemyType: quest.target.type,
+                x: spawnX,
+                y: spawnY,
+                char: '☠',
+                color: '#8e44ad',
+                hull: enemyData.hull,
+                maxHull: enemyData.hull,
+                damage: enemyData.damage,
+                loot: { min: 100, max: 300 },
+                aggressive: true,
+                speed: 1.2,
+                name: quest.target.name,
+                isBountyTarget: true,
+                questId: quest.id
+            };
+
+            entityManager.addEntity(bountyTarget);
+            quest.spawned = true;
+            quest.targetEntity = bountyTarget;
+            return true;
+        }
+
+        return false;
     }
 
     /**
