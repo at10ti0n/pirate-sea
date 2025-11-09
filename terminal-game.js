@@ -1353,6 +1353,13 @@ class TerminalGame {
         }
     }
 
+    createBar(percent, width) {
+        // Create a visual progress bar
+        const filled = Math.round((percent / 100) * width);
+        const empty = width - filled;
+        return '█'.repeat(filled) + '░'.repeat(empty);
+    }
+
     renderCargoInventory() {
         const cargoSummary = this.player.getCargoSummary();
         const shipStats = this.player.getShipStats();
@@ -1520,17 +1527,64 @@ class TerminalGame {
         };
         const dangerIcon = dangerIcons[dangerInfo.level] || '⚪';
 
-        console.log(`\nPosition: (${this.player.x}, ${this.player.y}) | Mode: ${this.player.mode} | Gold: ${this.player.gold}g`);
-        console.log(`Health: ${health.current}/${health.max} HP | Hunger: ${Math.floor(this.player.hunger)}% (${hungerStatus.message})`);
-        console.log(`Ship: ${shipStats.type} | Hull: ${shipStats.hull}/${shipStats.maxHull} HP | Cargo: ${cargoSummary.weight}/${cargoSummary.maxWeight}`);
+        // Get current weather
+        const currentWeather = this.weatherManager.getWeatherAt(this.player.x, this.player.y);
+        const weatherName = currentWeather ? this.weatherManager.getWeatherName(this.player.x, this.player.y) : 'Clear';
+        const weatherIcon = {
+            'Clear': '☀️',
+            'Fog': '🌫️',
+            'Rain': '🌧️',
+            'Storm': '⛈️',
+            'Hurricane': '🌀'
+        }[weatherName] || '☀️';
+
+        // Render structured status display
+        console.log('\n╔════════════════════════════════════════════════════════════════════════════╗');
+        console.log(`║ PIRATE SEA                                         ${timeStr.padEnd(24)} ║`);
+        console.log('╠════════════════════════════════════════════════════════════════════════════╣');
+
+        // Player Status Section
+        console.log(`║ \x1b[1mPLAYER\x1b[0m                                                                      ║`);
+        console.log(`║   Position: (${String(this.player.x).padStart(4)}, ${String(this.player.y).padStart(4)})${' '.repeat(10)}Mode: ${this.player.mode.padEnd(4)}${' '.repeat(10)}Gold: ${String(this.player.gold).padEnd(5)}g ║`);
+
+        // Health bar
+        const healthPercent = (health.current / health.max) * 100;
+        const healthBar = this.createBar(healthPercent, 20);
+        const healthColor = healthPercent > 60 ? '\x1b[32m' : healthPercent > 30 ? '\x1b[33m' : '\x1b[31m';
+        console.log(`║   Health:  ${healthColor}${healthBar}\x1b[0m ${String(health.current).padStart(3)}/${health.max} HP${' '.repeat(25)} ║`);
+
+        // Hunger bar
+        const hungerBar = this.createBar(this.player.hunger, 20);
+        const hungerColor = this.player.hunger > 60 ? '\x1b[32m' : this.player.hunger > 30 ? '\x1b[33m' : '\x1b[31m';
+        console.log(`║   Hunger:  ${hungerColor}${hungerBar}\x1b[0m ${String(Math.floor(this.player.hunger)).padStart(3)}% (${hungerStatus.message.padEnd(15)})  ║`);
+
+        console.log('╠════════════════════════════════════════════════════════════════════════════╣');
+
+        // Ship Status Section
+        console.log(`║ \x1b[1mSHIP\x1b[0m                                                                        ║`);
+        console.log(`║   Type: ${shipStats.type.padEnd(15)}${' '.repeat(5)}Cargo: ${String(cargoSummary.weight).padStart(3)}/${String(cargoSummary.maxWeight).padEnd(3)}${' '.repeat(23)} ║`);
+
+        // Hull bar
+        const hullPercent = (shipStats.hull / shipStats.maxHull) * 100;
+        const hullBar = this.createBar(hullPercent, 20);
+        const hullColor = hullPercent > 60 ? '\x1b[32m' : hullPercent > 30 ? '\x1b[33m' : '\x1b[31m';
+        console.log(`║   Hull:    ${hullColor}${hullBar}\x1b[0m ${String(shipStats.hull).padStart(3)}/${String(shipStats.maxHull).padEnd(3)} HP${' '.repeat(25)} ║`);
+
+        console.log('╠════════════════════════════════════════════════════════════════════════════╣');
+
+        // Environment Section
+        console.log(`║ \x1b[1mENVIRONMENT\x1b[0m                                                                 ║`);
+        console.log(`║   Weather: ${weatherIcon} ${weatherName.padEnd(12)}${' '.repeat(5)}Time: ${timePeriod.padEnd(10)}${' '.repeat(17)} ║`);
 
         if (distanceToHome !== null) {
-            console.log(`Home: ${Math.floor(distanceToHome)} tiles ${dangerIcon} ${dangerInfo.level.toUpperCase()} | Time: ${timeStr} (${timePeriod})`);
+            console.log(`║   Home: ${String(Math.floor(distanceToHome)).padStart(4)} tiles${' '.repeat(11)}Danger: ${dangerIcon} ${dangerInfo.level.toUpperCase().padEnd(10)}${' '.repeat(16)} ║`);
         } else {
-            console.log(`Time: ${timeStr} (${timePeriod}) | Visibility: ${viewRadius} tiles`);
+            console.log(`║   Visibility: ${viewRadius} tiles${' '.repeat(48)} ║`);
         }
 
-        console.log('Controls: WASD=Move, B=Board/Disembark, I=Cargo, P=Port, M=Maps, H=Dig, G=Gather, T=Trade, C=Cook, E=Eat, X=Examine, Q=Quit');
+        console.log('╠════════════════════════════════════════════════════════════════════════════╣');
+        console.log('║ \x1b[90mWASD\x1b[0m=Move \x1b[90mB\x1b[0m=Board \x1b[90mI\x1b[0m=Cargo \x1b[90mP\x1b[0m=Port \x1b[90mM\x1b[0m=Maps \x1b[90mH\x1b[0m=Dig \x1b[90mG\x1b[0m=Gather \x1b[90mT\x1b[0m=Trade \x1b[90mQ\x1b[0m=Quit   ║');
+        console.log('╚════════════════════════════════════════════════════════════════════════════╝');
 
         // Phase 1: Display port menu if active
         if (this.showPortMenu) {
@@ -1576,8 +1630,16 @@ class TerminalGame {
 
         // Display recent messages
         if (this.messageLog.length > 0) {
-            console.log('\nMessages:');
-            this.messageLog.slice(-3).forEach(msg => console.log(`  ${msg}`));
+            console.log('\n╔════════════════════════════════════════════════════════════════════════════╗');
+            console.log('║ \x1b[1mMESSAGES\x1b[0m                                                                    ║');
+            console.log('╠════════════════════════════════════════════════════════════════════════════╣');
+            this.messageLog.slice(-3).forEach(msg => {
+                // Truncate message if too long and pad to fit
+                const maxLen = 74;
+                const displayMsg = msg.length > maxLen ? msg.substring(0, maxLen - 3) + '...' : msg;
+                console.log(`║ ${displayMsg.padEnd(maxLen)} ║`);
+            });
+            console.log('╚════════════════════════════════════════════════════════════════════════════╝');
         }
     }
 
